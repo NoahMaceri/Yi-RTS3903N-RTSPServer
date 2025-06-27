@@ -136,8 +136,8 @@ int manage_modes(enum enum_rts_video_ctrl_id type, int value) {
 }
 
 static void day_mode_or_night_mode() {
-    int hysteresisOn = 2500;
-    int hysteresisOff = 500;
+    int hysteresisOn = 2750;
+    int hysteresisOff = 400;
 
     // We need to read the ADC (Light Sensor) first
     // Looks like it returns 3297 in total darkness,
@@ -269,6 +269,10 @@ int start_stream() {
 //    manage_modes(RTS_VIDEO_CTRL_ID_FOCUS, 100);
     manage_modes(RTS_VIDEO_CTRL_ID_DETAIL_ENHANCEMENT, 100);
     manage_modes(RTS_VIDEO_CTRL_ID_3DNR, -1);
+    // Rotate 180 degrees
+    manage_modes(RTS_VIDEO_CTRL_ID_MIRROR, 1);
+    manage_modes(RTS_VIDEO_CTRL_ID_FLIP, 1);
+    
     tpool = rts_pthreadpool_init(1);
     if (!tpool) {
         ret = -1;
