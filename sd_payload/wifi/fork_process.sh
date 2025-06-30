@@ -38,9 +38,9 @@ mount --bind /var/tmp/sd/localko /home/app/localko
 /var/tmp/sd/Yi/load_cpld_ssp
 
 if test -f "/tmp/sd/invert_adc"; then
-    ./stream 1 &
+    ./imager_streamer 1 &
 else
-    ./stream &
+    ./imager_streamer &
 fi
 ./rRTSPServer -d >/var/tmp/rtspServerLog 2>&1
 
