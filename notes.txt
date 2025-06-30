@@ -1,0 +1,4 @@
+sudo apt-get install gcc-multilib
+sudo dpkg --add-architecture i386
+sudo apt update
+sudo apt install zlib1g-dev:i386 libc6-dev:i386
