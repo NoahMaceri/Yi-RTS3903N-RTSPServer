@@ -68,18 +68,3 @@ file(GLOB LIVEMEDIA_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/live/liveMedia/*.cpp ${CMAK
 add_library(liveMedia SHARED ${LIVEMEDIA_SRCS})
 target_include_directories(liveMedia PUBLIC ${all_include_dirs})
 target_link_libraries(liveMedia PUBLIC compiler_flags)
-
-# Copy the .so files to the build directory on build
-add_custom_command(TARGET BasicUsageEnvironment POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/libBasicUsageEnvironment.so ${CMAKE_BINARY_DIR}
-)
-add_custom_command(TARGET UsageEnvironment POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/libUsageEnvironment.so ${CMAKE_BINARY_DIR}
-)
-add_custom_command(TARGET groupsock POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/libgroupsock.so ${CMAKE_BINARY_DIR}
-)
-add_custom_command(TARGET liveMedia POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/libUsageEnvironment.so ${CMAKE_BINARY_DIR}
-)
-

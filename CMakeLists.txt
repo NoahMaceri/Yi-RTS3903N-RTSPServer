@@ -40,36 +40,61 @@ target_link_directories(imager_streamer PRIVATE
 )
 
 # Package it up
-add_custom_target(package_${PROJECT_NAME} ALL
+add_custom_target(package_${PROJECT_NAME} COMMAND
         # if out folder exists, remove it
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/out
         # create out folder
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/out
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/out/lib
         # -- rRTSPServer --
         COMMAND ${CMAKE_COMMAND} -E copy
             ${CMAKE_BINARY_DIR}/rRTSPServer
             ${CMAKE_BINARY_DIR}/out
         COMMAND ${CMAKE_COMMAND} -E copy
-            ${CMAKE_BINARY_DIR}/*.so
-            ${CMAKE_BINARY_DIR}/out
+            ${CMAKE_BINARY_DIR}/third-party/live555/*.so
+            ${CMAKE_BINARY_DIR}/out/lib
         # -- image_streamer --
         COMMAND ${CMAKE_COMMAND} -E copy
             ${CMAKE_BINARY_DIR}/imager_streamer
             ${CMAKE_BINARY_DIR}/out
         COMMAND ${CMAKE_COMMAND} -E copy
             ${CMAKE_SOURCE_DIR}/imager_streamer/lib/*.so
-            ${CMAKE_BINARY_DIR}/out
-        # -- sd_card payload --
+            ${CMAKE_BINARY_DIR}/out/lib
         COMMAND ${CMAKE_COMMAND} -E copy
-            ${CMAKE_SOURCE_DIR}/sd_payload/*
+            ${TOOLCHAIN_FOLDER}/lib/libstdc++.so.6
+            ${CMAKE_BINARY_DIR}/out/lib
+        COMMAND ${CMAKE_COMMAND} -E copy
+            ${TOOLCHAIN_FOLDER}/lib/libatomic.so.1
+            ${CMAKE_BINARY_DIR}/out/lib
+        # We have to rename some libraries to match the expected names
+        COMMAND ${CMAKE_COMMAND} -E rename
+            ${CMAKE_BINARY_DIR}/out/lib/librtsosd.so
+            ${CMAKE_BINARY_DIR}/out/lib/librtsosd.so.1
+        COMMAND ${CMAKE_COMMAND} -E rename
+            ${CMAKE_BINARY_DIR}/out/lib/librtsio.so
+            ${CMAKE_BINARY_DIR}/out/lib/librtsio.so.0
+        COMMAND ${CMAKE_COMMAND} -E rename
+            ${CMAKE_BINARY_DIR}/out/lib/libopus.so
+            ${CMAKE_BINARY_DIR}/out/lib/libopus.so.0
+        COMMAND ${CMAKE_COMMAND} -E rename
+            ${CMAKE_BINARY_DIR}/out/lib/libsbc.so
+            ${CMAKE_BINARY_DIR}/out/lib/libsbc.so.1
+        # -- sd_card payload --
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/sd_payload/
             ${CMAKE_BINARY_DIR}/out
-        # Create a tar.gz archive of the out folder
-        COMMAND ${CMAKE_COMMAND} -E tar "cfz" "${PROJECT_NAME}_${PROJECT_VERSION}.tgz" ${CMAKE_BINARY_DIR}/out
+
+        # Create a tar
+        COMMAND tar -czf ${CMAKE_BINARY_DIR}/${PROJECT_NAME}-${PROJECT_VERSION}.tar.gz -C ${CMAKE_BINARY_DIR}/out .
+
+        # Clean up
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/out
 
         # Print a message indicating the package is ready
-        COMMAND ${CMAKE_COMMAND} -E echo "Package created at ${CMAKE_BINARY_DIR}/out/${PROJECT_NAME}-${PROJECT_VERSION}.tar.gz"
+        COMMAND ${CMAKE_COMMAND} -E echo "Package created at ${CMAKE_BINARY_DIR}/out/${PROJECT_NAME}-${PROJECT_VERSION}.tar"
+        DEPENDS rRTSPServer imager_streamer
 )
 
-add_custom_target(${PROJECT_NAME} ALL
+add_custom_target(${PROJECT_NAME} COMMAND
     DEPENDS rRTSPServer imager_streamer package_${PROJECT_NAME}
 )
