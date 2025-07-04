@@ -21,14 +21,10 @@ if [ -f /var/tmp/sd/Factory/wpa_supplicant.conf ]; then
     sleep 3s
 fi
 
-
 udhcpc -i wlan0 -b -s "${DEFAULT_SCRIPT}" &
-
 cd /var/tmp/sd/
 
-
 # Try load the load_cpld_ssp used in newer firmware to assist with IR CUT
-
 rm -rf /var/tmp/sd/localko 
 cp -R /home/app/localko .
 mkdir -p /home/app/localko # If it fails
@@ -37,10 +33,7 @@ cp /var/tmp/sd/Yi/ko/* /home/app/localko
 mount --bind /var/tmp/sd/localko /home/app/localko
 /var/tmp/sd/Yi/load_cpld_ssp
 
-if test -f "/tmp/sd/invert_adc"; then
-    ./imager_streamer 1 &
-else
-    ./imager_streamer &
-fi
-./rRTSPServer -d >/var/tmp/rtspServerLog 2>&1
+# Start the imager streamer and RTSP server
+./imager_streamer &
+./rRTSPServer &
 

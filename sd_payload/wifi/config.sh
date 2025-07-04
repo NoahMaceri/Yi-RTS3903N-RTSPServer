@@ -18,10 +18,11 @@ kill_cloud () {
 	killall arp_test
 }
 # Check if we've made a backup of this device
-if [ ! -f /var/tmp/sd/backup/mtdblock0.bin  ]; then
-     /var/tmp/sd/wifi/make_backup.sh 2>&1 &
-     kill_cloud
-fi
+# Disabled for now
+#if [ ! -f /var/tmp/sd/backup/mtdblock0.bin  ]; then
+#     /var/tmp/sd/wifi/make_backup.sh 2>&1 &
+#     kill_cloud
+#fi
 
 # Fork our script to run in the background
 /var/tmp/sd/wifi/fork_process.sh 2>&1 &

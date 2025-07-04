@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # PreLoad.cmake should have ran before this file, load the cross-compiler toolchain
@@ -6,12 +8,25 @@ include(third-party/rsdk/enable_mips_uclibc.cmake)
 
 project(RTS3903N_RTSP VERSION 0.3.0 LANGUAGES C CXX)
 
-# tell binarys to load .so from cwd
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath,'\$ORIGIN'")
+# handle ver.h.in
+configure_file(
+    ${CMAKE_SOURCE_DIR}/ver.h.in
+    ${CMAKE_BINARY_DIR}/ver.h
+)
 
-# Get the Live555 library
+# -- THIRD PARTY LIBRARIES --
+# Live555
 add_subdirectory(third-party/live555)
+# inih
+add_subdirectory(third-party/inih)
+# zlog
+add_subdirectory(third-party/zlog-1.2.18)
+include_directories(
+    ${CMAKE_SOURCE_DIR}/third-party/zlog-1.2.18/src
+)
 
+# -- EXECUTABLES --
+include_directories(${CMAKE_BINARY_DIR})
 # rRTSPServer
 add_executable(rRTSPServer rRTSPServer/src/rRTSPServer.cpp)
 target_link_libraries(rRTSPServer
@@ -19,6 +34,8 @@ target_link_libraries(rRTSPServer
     BasicUsageEnvironment
     liveMedia
     UsageEnvironment
+    inih
+    zlog
 )
 
 # imager_streamer
@@ -28,8 +45,9 @@ add_executable(imager_streamer
         ${CMAKE_SOURCE_DIR}/imager_streamer/src/stream.c
 )
 target_link_libraries(imager_streamer
-        # -lrtsio -lopus -lrtsjpeg -lsbc -lasound -lrtsgeom -lrtstream -lrtsv4l2 -lrtscamkit -lh1encoder -lrtsosd -lrtsutils -lrtsosd2 -lrtsjpeg -lrtsisp -lrtsaec
         ${IMAGER_STREAMER_LIBS}
+        inih
+        zlog
 )
 target_include_directories(imager_streamer PRIVATE
         ${CMAKE_SOURCE_DIR}/imager_streamer/include
@@ -39,7 +57,7 @@ target_link_directories(imager_streamer PRIVATE
         ${CMAKE_SOURCE_DIR}/imager_streamer/lib
 )
 
-# Package it up
+# -- PACKAGING --
 add_custom_target(package_${PROJECT_NAME} COMMAND
         # if out folder exists, remove it
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/out
@@ -66,6 +84,9 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
         COMMAND ${CMAKE_COMMAND} -E copy
             ${TOOLCHAIN_FOLDER}/lib/libatomic.so.1
             ${CMAKE_BINARY_DIR}/out/lib
+        COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_BINARY_DIR}/third-party/zlog-1.2.18/lib/libzlog.so.1.2.12
+            ${CMAKE_BINARY_DIR}/out/lib/libzlog.so.1
         # We have to rename some libraries to match the expected names
         COMMAND ${CMAKE_COMMAND} -E rename
             ${CMAKE_BINARY_DIR}/out/lib/librtsosd.so
@@ -79,13 +100,16 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
         COMMAND ${CMAKE_COMMAND} -E rename
             ${CMAKE_BINARY_DIR}/out/lib/libsbc.so
             ${CMAKE_BINARY_DIR}/out/lib/libsbc.so.1
+        COMMAND ${CMAKE_COMMAND} -E rename
+            ${CMAKE_BINARY_DIR}/out/lib/librtsisp.so
+            ${CMAKE_BINARY_DIR}/out/lib/librtsisp.so.1
         # -- sd_card payload --
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/sd_payload/
             ${CMAKE_BINARY_DIR}/out
 
         # Create a tar
-        COMMAND tar -czf ${CMAKE_BINARY_DIR}/${PROJECT_NAME}-${PROJECT_VERSION}.tar.gz -C ${CMAKE_BINARY_DIR}/out .
+        COMMAND tar -cf ${CMAKE_BINARY_DIR}/${PROJECT_NAME}-${PROJECT_VERSION}.tar -C ${CMAKE_BINARY_DIR}/out .
 
         # Clean up
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/out
