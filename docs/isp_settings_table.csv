@@ -1,0 +1,36 @@
+Name,Min,Max,Step,Default,Current
+Brightness,-64,64,1,0,0
+Contrast,0,100,1,50,50
+Hue,-180,180,1,0,0
+Saturation,0,100,1,50,50
+Sharpness,0,100,1,50,50
+Gamma,100,500,1,300,300
+White Balance Temperature, Auto,0,2,1,1,1
+White Balance Temperature,2800,6500,10,4600,4227
+Backlight Compensation,0,2,1,1,1
+Power Line Frequency,0,3,1,1,1
+Exposure Auto,0,1,1,0,0
+Exposure Auto Priority,0,1,1,0,0
+Exposure (Absolute),1,1000000,1,10000,1866
+Zoom Absolute,0,3,1,0,0
+Pan (Absolute),-57600,57600,3600,0,0
+Tilt (Absolute),-43200,43200,3600,0,0
+Roll (Absolute),0,3,1,0,3
+flip,0,1,1,0,1
+mirror,0,1,1,0,1
+gray mode,0,1,1,0,0
+wdr mode,0,2,1,0,1
+wdr level,0,100,1,0,63
+White Balance Green Component,0,1023,1,256,256
+White Balance Red Component,0,1023,1,256,397
+White Balance Blue Component,0,1023,1,256,467
+AE Gain,256,65535,1,256,0
+3dnr,0,1,1,0,1
+dehaze,0,1,1,0,0
+ir_mode,0,2,1,0,0
+smart_ir_mode,0,4,1,0,2
+smart_ir_manual_level,0,100,1,0,50
+in_out_door_mode,0,2,1,2,0
+noise_reduction,1,7,1,4,4
+detail_enhancement,1,7,1,4,4
+ldc,0,1,1,0,1

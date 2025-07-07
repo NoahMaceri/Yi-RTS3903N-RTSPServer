@@ -20,16 +20,19 @@ add_subdirectory(third-party/live555)
 # inih
 add_subdirectory(third-party/inih)
 # zlog
-add_subdirectory(third-party/zlog-1.2.18)
-include_directories(
-    ${CMAKE_SOURCE_DIR}/third-party/zlog-1.2.18/src
-)
+add_subdirectory(third-party/zlog)
+include_directories(${CMAKE_SOURCE_DIR}/third-party/zlog/src)
+# rtscore
+add_subdirectory(third-party/rtscore)
 
 # -- EXECUTABLES --
-include_directories(${CMAKE_BINARY_DIR})
-# rRTSPServer
-add_executable(rRTSPServer rRTSPServer/src/rRTSPServer.cpp)
-target_link_libraries(rRTSPServer
+include_directories(
+        ${CMAKE_BINARY_DIR}
+        includes
+)
+# rtsp_server
+add_executable(rtsp_server src/rtsp_server.cpp)
+target_link_libraries(rtsp_server
     groupsock
     BasicUsageEnvironment
     liveMedia
@@ -39,25 +42,19 @@ target_link_libraries(rRTSPServer
 )
 
 # imager_streamer
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-rpath-link=${CMAKE_SOURCE_DIR}/lib/")
 file(GLOB IMAGER_STREAMER_LIBS ${CMAKE_SOURCE_DIR}/imager_streamer/lib/*.so)
 add_executable(imager_streamer
-        ${CMAKE_SOURCE_DIR}/imager_streamer/src/stream.c
+        src/stream.c
 )
 target_link_libraries(imager_streamer
         ${IMAGER_STREAMER_LIBS}
         inih
         zlog
-)
-target_include_directories(imager_streamer PRIVATE
-        ${CMAKE_SOURCE_DIR}/imager_streamer/include
-        ${CMAKE_SOURCE_DIR}/imager_streamer/lib
-)
-target_link_directories(imager_streamer PRIVATE
-        ${CMAKE_SOURCE_DIR}/imager_streamer/lib
+        rtscore
 )
 
 # -- PACKAGING --
+message(STATUS "RTSCORE libs ${rtscore_LIBS}")
 add_custom_target(package_${PROJECT_NAME} COMMAND
         # if out folder exists, remove it
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/out
@@ -66,7 +63,7 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/out/lib
         # -- rRTSPServer --
         COMMAND ${CMAKE_COMMAND} -E copy
-            ${CMAKE_BINARY_DIR}/rRTSPServer
+            ${CMAKE_BINARY_DIR}/rtsp_server
             ${CMAKE_BINARY_DIR}/out
         COMMAND ${CMAKE_COMMAND} -E copy
             ${CMAKE_BINARY_DIR}/third-party/live555/*.so
@@ -76,7 +73,7 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
             ${CMAKE_BINARY_DIR}/imager_streamer
             ${CMAKE_BINARY_DIR}/out
         COMMAND ${CMAKE_COMMAND} -E copy
-            ${CMAKE_SOURCE_DIR}/imager_streamer/lib/*.so
+            ${rtscore_LIBS}
             ${CMAKE_BINARY_DIR}/out/lib
         COMMAND ${CMAKE_COMMAND} -E copy
             ${TOOLCHAIN_FOLDER}/lib/libstdc++.so.6
@@ -85,7 +82,7 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
             ${TOOLCHAIN_FOLDER}/lib/libatomic.so.1
             ${CMAKE_BINARY_DIR}/out/lib
         COMMAND ${CMAKE_COMMAND} -E copy
-            ${CMAKE_BINARY_DIR}/third-party/zlog-1.2.18/lib/libzlog.so.1.2.12
+            ${CMAKE_BINARY_DIR}/third-party/zlog/lib/libzlog.so.1.2.*
             ${CMAKE_BINARY_DIR}/out/lib/libzlog.so.1
         # We have to rename some libraries to match the expected names
         COMMAND ${CMAKE_COMMAND} -E rename
@@ -103,6 +100,12 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
         COMMAND ${CMAKE_COMMAND} -E rename
             ${CMAKE_BINARY_DIR}/out/lib/librtsisp.so
             ${CMAKE_BINARY_DIR}/out/lib/librtsisp.so.1
+        COMMAND ${CMAKE_COMMAND} -E rename
+            ${CMAKE_BINARY_DIR}/out/lib/librtscrypt.so
+            ${CMAKE_BINARY_DIR}/out/lib/librtscrypt.so.1
+        COMMAND ${CMAKE_COMMAND} -E rename
+            ${CMAKE_BINARY_DIR}/out/lib/libopencore-amrnb.so
+            ${CMAKE_BINARY_DIR}/out/lib/libopencore-amrnb.so.0
         # -- sd_card payload --
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/sd_payload/
@@ -116,9 +119,9 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
 
         # Print a message indicating the package is ready
         COMMAND ${CMAKE_COMMAND} -E echo "Package created at ${CMAKE_BINARY_DIR}/out/${PROJECT_NAME}-${PROJECT_VERSION}.tar"
-        DEPENDS rRTSPServer imager_streamer
+        DEPENDS rtsp_server imager_streamer
 )
 
 add_custom_target(${PROJECT_NAME} COMMAND
-    DEPENDS rRTSPServer imager_streamer package_${PROJECT_NAME}
+    DEPENDS rtsp_server imager_streamer package_${PROJECT_NAME}
 )

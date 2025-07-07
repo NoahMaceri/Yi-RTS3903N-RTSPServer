@@ -35,5 +35,5 @@ mount --bind /var/tmp/sd/localko /home/app/localko
 
 # Start the imager streamer and RTSP server
 ./imager_streamer &
-./rRTSPServer &
+./rtsp_server &
 

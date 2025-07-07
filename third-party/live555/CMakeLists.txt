@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 project(live)
 
 # First download the zip
-set(SOURCE_VER "2021.04.06")
+set(SOURCE_VER "2025.05.24")
 
 # if the zip is not present, download it
 if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/live.${SOURCE_VER}.tar.gz")
