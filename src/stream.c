@@ -35,9 +35,9 @@
 #include <ver.h>
 #include <globals.h>
 
-int g_exit = RTS_FALSE;
+uint8_t g_exit = RTS_FALSE;
 // This is used for "debouncing" the IR mode changes
-int g_ir_cut_mode = 0; // 0 = day, 1 = night
+int8_t g_ir_cut_mode = -1; // 0 = day, 1 = night
 
 zlog_category_t *c;
 
