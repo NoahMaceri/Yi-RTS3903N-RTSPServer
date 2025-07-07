@@ -67,9 +67,8 @@ int main(int argc, char *argv[]) {
     zlog_debug(c, "  Stream Name: %s", config.name);
 
     // Begin by setting up our usage environment:
-    UsageEnvironment *env = nullptr;
     TaskScheduler *scheduler = BasicTaskScheduler::createNew();
-    env = BasicUsageEnvironment::createNew(*scheduler);
+    BasicUsageEnvironment *env = BasicUsageEnvironment::createNew(*scheduler);
 
     UserAuthenticationDatabase *authDB = nullptr;
     if ((config.user != nullptr) && (config.pwd != nullptr)) {
@@ -86,9 +85,8 @@ int main(int argc, char *argv[]) {
 
     OutPacketBuffer::maxSize = 300000;
     Boolean reuse_first_source = True;
-    ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name, config.name, "RTSP server");
+    ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name, "", "");
     sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, reuse_first_source));
-    // sms->addSubsession(MP3AudioFileServerMediaSubsession::createNew(*env, AUDIO_SINK, True, True, nullptr));
     rtspServer->addServerMediaSession(sms);
     env->taskScheduler().doEventLoop(); // does not return
 

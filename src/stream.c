@@ -24,7 +24,6 @@
 #include <rtscamkit.h>
 #include <rtsavapi.h>
 #include <rtsvideo.h>
-#include <rtsaudio.h>
 #include <rts_pthreadpool.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -239,6 +238,7 @@ uint8_t create_sink(FILE** sink, const char* path) {
         return RTS_FALSE;
     }
     zlog_info(c, "Created sink at %s", path);
+    signal(SIGPIPE, SIG_IGN);
     return RTS_TRUE;
 }
 
@@ -280,15 +280,12 @@ void kill_stream(const handlers *h) {
 int start_stream(streamer_settings config) {
     struct rts_isp_attr isp_attr;
     struct rts_h264_attr h264_attr;
-    struct rts_audio_attr aud_attr;
     struct rts_av_profile profile;
 
     handlers h = {
         .tpool = NULL,
         .isp = -1,
         .h264_enc = -1,
-        .audio_chn = -1,
-        .audio_enc = -1
     };
 
     // -- VIDEO SETUP --
@@ -316,7 +313,6 @@ int start_stream(streamer_settings config) {
     h264_attr.level = H264_LEVEL_4;
     h264_attr.qp = -1;
     h264_attr.bps = config.max_bitrate;
-    // set the GOP to the same as the FPS to improve stream latency
     h264_attr.gop = config.fps * 2;
     h264_attr.videostab = 0;
     h264_attr.rotation = RTS_AV_ROTATION_0;
@@ -343,49 +339,6 @@ int start_stream(streamer_settings config) {
     change_isp_setting(RTS_VIDEO_CTRL_ID_IN_OUT_DOOR_MODE, config.in_out_door_mode);
     change_isp_setting(RTS_VIDEO_CTRL_ID_DEHAZE, config.dehaze);
 
-    // -- AUDIO SETUP --
-    // memset(&aud_attr, 0, sizeof(aud_attr));
-    // snprintf(aud_attr.dev_node, sizeof(aud_attr.dev_node), "hw:0,1");
-    // aud_attr.rate = 8000;
-    // aud_attr.format = 16;
-    // aud_attr.channels = 1;
-    //
-    // h.audio_chn = rts_av_create_audio_capture_chn(&aud_attr);
-    // if (RTS_IS_ERR(h.audio_chn)) {
-    //     zlog_fatal(c, "Failed to create audio capture channel, ret %d", h.audio_chn);
-    //     kill_stream(&h);
-    // }
-    // zlog_info(c, "Audio capture channel created: %d", h.audio_chn);
-    //
-    // h.audio_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_PCM, 16000);
-    // if (RTS_IS_ERR(h.audio_enc)) {
-    //     zlog_fatal(c, "Failed to create audio encode channel, ret %d", h.audio_enc);
-    //     kill_stream(&h);
-    // }
-    // zlog_info(c, "Audio encode channel created: %d", h.audio_enc);
-    //
-    // ret = rts_av_bind(h.audio_chn, h.audio_enc);
-    // if (ret) {
-    //     zlog_fatal(c, "Failed to bind audio capture & encode channels to RTS AV API, ret %d", ret);
-    //     kill_stream(&h);
-    // }
-    //
-    // ret = rts_av_enable_chn(h.audio_chn);
-    // if (RTS_IS_ERR(ret)) {
-    //     zlog_error(c, "Failed to enable audio capture channel, ret %d", ret);
-    //     kill_stream(&h);
-    // } else {
-    //     zlog_info(c, "Audio capture channel enabled: %d", h.audio_chn);
-    // }
-    //
-    // ret = rts_av_enable_chn(h.audio_enc);
-    // if (RTS_IS_ERR(ret)) {
-    //     zlog_error(c, "Failed to enable audio encode channel, ret %d", ret);
-    //     kill_stream(&h);
-    // } else {
-    //     zlog_info(c, "Audio encode channel enabled: %d", h.audio_enc);
-    // }
-
     h.tpool = rts_pthreadpool_init(1);
     if (!h.tpool) {
         kill_stream(&h);
@@ -402,14 +355,6 @@ int start_stream(streamer_settings config) {
         kill_stream(&h);
     }
 
-    // FILE *audio_stream = NULL;
-    // if (create_sink(audio_stream, AUDIO_SINK) == RTS_FALSE) {
-    //     zlog_fatal(c, "Failed to create audio sink, ret %d", ret);
-    //     kill_stream(&h);
-    // }
-    // zlog_debug(c, "Audio sink created at %s", AUDIO_SINK);
-    signal(SIGPIPE, SIG_IGN);
-
     // Try load the V4L device
     int vfd = rts_isp_v4l2_open(isp_attr.isp_id);
     if (vfd > 0) {
@@ -420,7 +365,6 @@ int start_stream(streamer_settings config) {
     change_ir_cut(1); // Always start as if it was day time
     zlog_info(c, "Starting imager streamer");
     struct rts_av_buffer *vid_buffer = NULL;
-    // struct rts_av_buffer *aud_buffer = NULL;
     while (g_exit == RTS_FALSE) {
         // Handle video
         if (rts_av_poll(h.h264_enc)) {
@@ -443,21 +387,6 @@ int start_stream(streamer_settings config) {
             rts_av_put_buffer(vid_buffer);
             vid_buffer = NULL;
         }
-
-        // Handle audio
-        // if (rts_av_poll(h.audio_enc))
-        //     continue;
-        // if (rts_av_recv(h.audio_enc, &aud_buffer))
-        //     continue;
-        //
-        // if (aud_buffer) {
-        //     if (fwrite(aud_buffer->vm_addr, 1, aud_buffer->bytesused, audio_stream) != aud_buffer->bytesused) {
-        //         zlog_error(c, "Possible SIGPIPE break from stream disconnection, skipping flush");
-        //     } else {
-        //         fflush(audio_stream);
-        //     }
-        //     RTS_SAFE_RELEASE(aud_buffer, rts_av_put_buffer);
-        // }
 
         usleep(1000); // Iterate every 1ms
     }
@@ -509,7 +438,7 @@ static int parse_ini(void *user, const char *section, const char *name, const ch
 
 
 int main(int argc, char *argv[]) {
-    // setpriority(PRIO_PROCESS, getpid(), -5);
+    setpriority(PRIO_PROCESS, getpid(), -5);
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
 
@@ -533,23 +462,23 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    zlog_debug(c, "Streamer settings:");
-    zlog_debug(c, "  Noise reduction: %d", config.noise_reduction);
-    zlog_debug(c, "  LDC: %d", config.ldc);
-    zlog_debug(c, "  Detail enhancement: %d", config.detail_enhancement);
-    zlog_debug(c, "  3DNR: %d", config.three_dnr);
-    zlog_debug(c, "  Mirror: %d", config.mirror);
-    zlog_debug(c, "  Flip: %d", config.flip);
-    zlog_debug(c, "  ADC cutoff: %d", config.adc_cutoff);
-    zlog_debug(c, "  ADC cutoff (inverted): %d", config.adc_cutoff_inverted);
-    zlog_debug(c, "  Min bitrate: %d", config.min_bitrate);
-    zlog_debug(c, "  Max bitrate: %d", config.max_bitrate);
-    zlog_debug(c, "  Width: %d", config.width);
-    zlog_debug(c, "  Height: %d", config.height);
-    zlog_debug(c, "  FPS: %d", config.fps);
-    zlog_debug(c, "  Invert IR Cut: %d", config.invert_ir_cut);
-    zlog_debug(c, "  In/Out Door Mode: %d", config.in_out_door_mode);
-    zlog_debug(c, "  Dehaze: %d", config.dehaze);
+    // zlog_debug(c, "Streamer settings:");
+    // zlog_debug(c, "  Noise reduction: %d", config.noise_reduction);
+    // zlog_debug(c, "  LDC: %d", config.ldc);
+    // zlog_debug(c, "  Detail enhancement: %d", config.detail_enhancement);
+    // zlog_debug(c, "  3DNR: %d", config.three_dnr);
+    // zlog_debug(c, "  Mirror: %d", config.mirror);
+    // zlog_debug(c, "  Flip: %d", config.flip);
+    // zlog_debug(c, "  ADC cutoff: %d", config.adc_cutoff);
+    // zlog_debug(c, "  ADC cutoff (inverted): %d", config.adc_cutoff_inverted);
+    // zlog_debug(c, "  Min bitrate: %d", config.min_bitrate);
+    // zlog_debug(c, "  Max bitrate: %d", config.max_bitrate);
+    // zlog_debug(c, "  Width: %d", config.width);
+    // zlog_debug(c, "  Height: %d", config.height);
+    // zlog_debug(c, "  FPS: %d", config.fps);
+    // zlog_debug(c, "  Invert IR Cut: %d", config.invert_ir_cut);
+    // zlog_debug(c, "  In/Out Door Mode: %d", config.in_out_door_mode);
+    // zlog_debug(c, "  Dehaze: %d", config.dehaze);
 
     // Uncomment to get all possible ISP options printed to stdout
     // get_all_isp_options();
