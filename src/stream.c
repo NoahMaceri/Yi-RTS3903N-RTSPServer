@@ -127,7 +127,8 @@ uint8_t change_isp_setting(enum enum_rts_video_ctrl_id type, int value) {
     }
     if (!is_valid_value(value, &ctrl)) {
         zlog_error(c, "Invalid value %d for %s (min: %d, max: %d, step: %d)", value, ctrl.name, ctrl.minimum, ctrl.maximum, ctrl.step);
-        return RTS_FALSE;
+        zlog_warn(c, "Setting to default value %d", ctrl.default_value);
+        value = ctrl.default_value;
     }
     ctrl.current_value = value;
     ret = rts_av_set_isp_ctrl(type, &ctrl);
@@ -167,15 +168,29 @@ int change_ir_cut(int action) {
 static void check_ir_mode(const int32_t cutoff_inverted, const int32_t cutoff, const uint8_t invert) {
     // ADC return 3297 in total darkness and <100 in just a little bit of light.
     // The ADC is very noisy
-    int32_t adc_value = 0;
+    int32_t adc_value_0 = 0;
+    int32_t adc_value_1 = 0;
+    int32_t adc_value_2 = 0;
+    int32_t adc_value_3 = 0;
+    // Read the ADC value multiple times to get a stable reading
     for (int i = 0; i < ADC_ITERATIONS; i++) {
-        adc_value += rts_io_adc_get_value(ADC_CHANNEL_0);
+        adc_value_0 += rts_io_adc_get_value(ADC_CHANNEL_0);
+        adc_value_1 += rts_io_adc_get_value(ADC_CHANNEL_1);
+        adc_value_2 += rts_io_adc_get_value(ADC_CHANNEL_2);
+        adc_value_3 += rts_io_adc_get_value(ADC_CHANNEL_3);
+        // Sleep for a short time to allow the ADC to stabilize
         sleep(1);
     }
-    adc_value = adc_value / ADC_ITERATIONS;
+    adc_value_0 = adc_value_0 / ADC_ITERATIONS;
+    adc_value_1 = adc_value_1 / ADC_ITERATIONS;
+    adc_value_2 = adc_value_2 / ADC_ITERATIONS;
+    adc_value_3 = adc_value_3 / ADC_ITERATIONS;
+
+    uint32_t adc_value = (adc_value_0 + adc_value_1 + adc_value_2 + adc_value_3) / 4;
+
     if ((invert && adc_value > cutoff_inverted) || (adc_value < cutoff)) {
         if (g_ir_cut_mode != 0) {
-            zlog_debug(c, "IR control: ADC=%d, cutoff=%d", adc_value, invert ? cutoff_inverted : cutoff);
+            zlog_debug(c, "IR control: ADC_tot=%d, ADC_0=%d, ADC_1=%d, ADC_2=%d, ADC_3=%d cutoff=%d", adc_value, adc_value_0, adc_value_1, adc_value_2, adc_value_3, invert ? cutoff_inverted : cutoff);
             zlog_info(c, "Switching to day mode");
             change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 0);
             change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 0);
@@ -184,7 +199,7 @@ static void check_ir_mode(const int32_t cutoff_inverted, const int32_t cutoff, c
         }
     } else {
         if (g_ir_cut_mode != 1) {
-            zlog_debug(c, "IR control: ADC=%d, cutoff=%d", adc_value, invert ? cutoff_inverted : cutoff);
+            zlog_debug(c, "IR control: ADC_tot=%d, ADC_0=%d, ADC_1=%d, ADC_2=%d, ADC_3=%d cutoff=%d", adc_value, adc_value_0, adc_value_1, adc_value_2, adc_value_3, invert ? cutoff_inverted : cutoff);
             zlog_info(c, "Switching to night mode");
             change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 1);
             change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 1);
@@ -207,32 +222,30 @@ static void ir_ctrl_thread(void *arg) {
     zlog_info(c, "IR control thread exiting");
 }
 
-FILE* create_sink(const char* path) {
-    zlog_debug(c, "Creating sink at %s", path);
-    // if the fifo exists, delete it
-    if (access(path, F_OK) == 0) {
-        if (unlink(path) < 0) {
-            zlog_fatal(c, "Failed to delete existing fifo file %s", path);
-            return NULL;
-        }
-        if (mkfifo(path, 0755) < 0) {
-            zlog_fatal(c, "Failed to create fifo file %s", path);
-            return NULL;
-        }
+uint8_t create_sink(FILE** sink, const char* path) {
+    // remove any existing fifo file
+    if (unlink(path) == 0) {
+        zlog_debug(c, "Removed existing fifo file %s", path);
     }
-    FILE *tmp = fopen(path, "wb");
-    if (tmp < 0) {
+    // create a new fifo file
+    if (mkfifo(path, 0755) < 0) {
+        zlog_fatal(c, "Failed to create fifo file %s", path);
+        return RTS_FALSE;
+    }
+    // open the fifo file for writing
+    *sink = fopen(path, "wb");
+    if (!*sink) {
         zlog_fatal(c, "Failed to open fifo file %s", path);
-        return NULL;
+        return RTS_FALSE;
     }
     zlog_info(c, "Created sink at %s", path);
-    signal(SIGPIPE, SIG_IGN);
-    return tmp;
+    return RTS_TRUE;
 }
 
 
 void kill_stream(const handlers *h) {
-    rts_pthreadpool_del_tasks(h->tpool, ir_ctrl_thread, NULL, NULL, NULL);
+    g_exit = RTS_TRUE;
+    sleep(2); // Give the IR control thread time to exit
     rts_pthreadpool_destroy(h->tpool);
     if (h->isp >= 0) {
         rts_av_disable_chn(h->isp);
@@ -258,7 +271,7 @@ void kill_stream(const handlers *h) {
     if (h->audio_chn >= 0 && h->audio_enc >= 0) {
         rts_av_unbind(h->audio_chn, h->audio_enc);
     }
-    g_exit = RTS_TRUE;
+
     rts_av_release();
     zlog_info(c, "Stream stopped and resources released");
     _exit(1);
@@ -304,7 +317,7 @@ int start_stream(streamer_settings config) {
     h264_attr.qp = -1;
     h264_attr.bps = config.max_bitrate;
     // set the GOP to the same as the FPS to improve stream latency
-    h264_attr.gop = config.fps;
+    h264_attr.gop = config.fps * 2;
     h264_attr.videostab = 0;
     h264_attr.rotation = RTS_AV_ROTATION_0;
     h.h264_enc = rts_av_create_h264_chn(&h264_attr);
@@ -383,20 +396,19 @@ int start_stream(streamer_settings config) {
     set_fps(config.fps);
     rts_av_start_recv(h.h264_enc);
 
-    FILE *video_stream = create_sink(VIDEO_SINK);
-    // FILE *audio_stream = NULL;
-    if (video_stream == NULL) {
+    FILE *video_stream = NULL;
+    if (create_sink(&video_stream, VIDEO_SINK) == RTS_FALSE) {
         zlog_fatal(c, "Failed to create video sink, ret %d", ret);
         kill_stream(&h);
     }
-    zlog_debug(c, "Video sink created at %s", VIDEO_SINK);
 
-    // FILE *audio_stream = create_sink(AUDIO_SINK);
-    // if (audio_stream == NULL) {
+    // FILE *audio_stream = NULL;
+    // if (create_sink(audio_stream, AUDIO_SINK) == RTS_FALSE) {
     //     zlog_fatal(c, "Failed to create audio sink, ret %d", ret);
     //     kill_stream(&h);
     // }
-    // zlog_info(c, "Audio sink created at %s", AUDIO_SINK);
+    // zlog_debug(c, "Audio sink created at %s", AUDIO_SINK);
+    signal(SIGPIPE, SIG_IGN);
 
     // Try load the V4L device
     int vfd = rts_isp_v4l2_open(isp_attr.isp_id);
@@ -407,15 +419,20 @@ int start_stream(streamer_settings config) {
     // Toggle IR Cut at startup (disabled as of V03 as dispatch binary does this auto)
     change_ir_cut(1); // Always start as if it was day time
     zlog_info(c, "Starting imager streamer");
+    struct rts_av_buffer *vid_buffer = NULL;
+    // struct rts_av_buffer *aud_buffer = NULL;
     while (g_exit == RTS_FALSE) {
-        struct rts_av_buffer *vid_buffer = NULL;
-        struct rts_av_buffer *aud_buffer = NULL;
-
         // Handle video
-        if (rts_av_poll(h.h264_enc))
+        if (rts_av_poll(h.h264_enc)) {
+            usleep(1000);
             continue;
-        if (rts_av_recv(h.h264_enc, &vid_buffer))
+        }
+
+        if (rts_av_recv(h.h264_enc, &vid_buffer)) {
+            usleep(1000);
             continue;
+        }
+
         if (vid_buffer) {
             if (fwrite(vid_buffer->vm_addr, 1, vid_buffer->bytesused, video_stream) != vid_buffer->bytesused) {
                 zlog_error(c, "Possible SIGPIPE break from stream disconnection, skipping flush");

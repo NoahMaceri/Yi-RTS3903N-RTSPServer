@@ -67,8 +67,9 @@ int main(int argc, char *argv[]) {
     zlog_debug(c, "  Stream Name: %s", config.name);
 
     // Begin by setting up our usage environment:
+    UsageEnvironment *env = nullptr;
     TaskScheduler *scheduler = BasicTaskScheduler::createNew();
-    UsageEnvironment *env = BasicUsageEnvironment::createNew(*scheduler);
+    env = BasicUsageEnvironment::createNew(*scheduler);
 
     UserAuthenticationDatabase *authDB = nullptr;
     if ((config.user != nullptr) && (config.pwd != nullptr)) {
@@ -83,11 +84,10 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // First, make sure that the RTPSinks' buffers will be large enough to handle the huge size of DV frames (as big as 288000).
     OutPacketBuffer::maxSize = 300000;
-
+    Boolean reuse_first_source = True;
     ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name, config.name, "RTSP server");
-    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, True));
+    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, reuse_first_source));
     // sms->addSubsession(MP3AudioFileServerMediaSubsession::createNew(*env, AUDIO_SINK, True, True, nullptr));
     rtspServer->addServerMediaSession(sms);
     env->taskScheduler().doEventLoop(); // does not return
