@@ -35,8 +35,10 @@
 #include <ver.h>
 #include <globals.h>
 
-int night = 3;
-static int g_exit;
+int g_exit = RTS_FALSE;
+// This is used for "debouncing" the IR mode changes
+int g_ir_cut_mode = 0; // 0 = day, 1 = night
+
 zlog_category_t *c;
 
 typedef struct {
@@ -66,8 +68,10 @@ typedef struct {
     int32_t audio_enc;
 } handlers;
 
+#define ADC_ITERATIONS 15
+
 static void terminate() {
-    g_exit = 1;
+    g_exit = RTS_TRUE;
 }
 
 uint8_t set_c_vbr(const int h264_ch, const uint32_t max_bitrate, const uint32_t min_bitrate) {
@@ -161,46 +165,46 @@ int change_ir_cut(int action) {
 }
 
 static void check_ir_mode(const int32_t cutoff_inverted, const int32_t cutoff, const uint8_t invert) {
-    // We need to read the ADC (Light Sensor) first
-    // Looks like it returns 3297 in total darkness, and double-digit values (<100) in just a little bit of light.
-    // The ADC is very noisy, so we sample 10 times and use the average value.
-    uint32_t adc_value = 0;
-    for (int i = 0; i < 15; i++) {
+    // ADC return 3297 in total darkness and <100 in just a little bit of light.
+    // The ADC is very noisy
+    int32_t adc_value = 0;
+    for (int i = 0; i < ADC_ITERATIONS; i++) {
         adc_value += rts_io_adc_get_value(ADC_CHANNEL_0);
         sleep(1);
     }
-    adc_value = adc_value / 15;
-
-    uint8_t day = 0;
+    adc_value = adc_value / ADC_ITERATIONS;
     if ((invert && adc_value > cutoff_inverted) || (adc_value < cutoff)) {
-        day = 1;
-    }
-
-    zlog_debug(c, "IR control: ADC=%d, day=%d", adc_value, day);
-    if (night != 1 && day == 0) {
-        change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 1);
-        change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 2);
-        change_ir_cut(1);
-        night = 1;
-    } else if (night != 0 && day == 1) {
-        change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 0);
-        change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 0);
-        change_ir_cut(0);
-        night = 0;
+        if (g_ir_cut_mode != 0) {
+            zlog_debug(c, "IR control: ADC=%d, cutoff=%d", adc_value, invert ? cutoff_inverted : cutoff);
+            zlog_info(c, "Switching to day mode");
+            change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 0);
+            change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 0);
+            change_ir_cut(0);
+            g_ir_cut_mode = 0;
+        }
+    } else {
+        if (g_ir_cut_mode != 1) {
+            zlog_debug(c, "IR control: ADC=%d, cutoff=%d", adc_value, invert ? cutoff_inverted : cutoff);
+            zlog_info(c, "Switching to night mode");
+            change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 1);
+            change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 1);
+            change_ir_cut(1);
+            g_ir_cut_mode = 1;
+        }
     }
 }
 
 static void ir_ctrl_thread(void *arg) {
-    zlog_info(c, "Starting ISP control thread");
-    streamer_settings *settings = (streamer_settings *) arg;
+    zlog_info(c, "Starting IR control thread");
+    const streamer_settings *settings = (streamer_settings *) arg;
     // Wait for any other apps controlling the IR cut to end
     sleep(30);
-    while (!g_exit) {
-        // The IR check takes 15 seconds + 15 seconds sleep, so we run it every 30 seconds
+    zlog_info(c, "Beginning IR control");
+    while (g_exit == RTS_FALSE) {
         check_ir_mode(settings->adc_cutoff_inverted, settings->adc_cutoff, settings->invert_ir_cut);
-        sleep(15);
+        sleep(30 - ADC_ITERATIONS);
     }
-    zlog_info(c, "ISP control thread exiting");
+    zlog_info(c, "IR control thread exiting");
 }
 
 FILE* create_sink(const char* path) {
@@ -254,7 +258,7 @@ void kill_stream(const handlers *h) {
     if (h->audio_chn >= 0 && h->audio_enc >= 0) {
         rts_av_unbind(h->audio_chn, h->audio_enc);
     }
-    g_exit = 1;
+    g_exit = RTS_TRUE;
     rts_av_release();
     zlog_info(c, "Stream stopped and resources released");
     _exit(1);
@@ -308,7 +312,7 @@ int start_stream(streamer_settings config) {
         zlog_fatal(c, "Failed to create H264 channel, ret %d", h.h264_enc);
         kill_stream(&h);
     }
-    zlog_info(c, "H264 channel created: %d", h.h264_enc);
+    zlog_debug(c, "H264 channel created: %d", h.h264_enc);
 
     ret = rts_av_bind(h.isp, h.h264_enc);
     if (ret) {
@@ -333,40 +337,40 @@ int start_stream(streamer_settings config) {
     // aud_attr.format = 16;
     // aud_attr.channels = 1;
     //
-    // audio_chn = rts_av_create_audio_capture_chn(&aud_attr);
-    // if (RTS_IS_ERR(audio_chn)) {
-    //     zlog_fatal(c, "Failed to create audio capture channel, ret %d", audio_chn);
-    //     kill_stream(isp, vid_channel, audio_chn, audio_enc, tpool);
+    // h.audio_chn = rts_av_create_audio_capture_chn(&aud_attr);
+    // if (RTS_IS_ERR(h.audio_chn)) {
+    //     zlog_fatal(c, "Failed to create audio capture channel, ret %d", h.audio_chn);
+    //     kill_stream(&h);
     // }
-    // zlog_info(c, "Audio capture channel created: %d", audio_chn);
+    // zlog_info(c, "Audio capture channel created: %d", h.audio_chn);
     //
-    // audio_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_PCM, 16000);
-    // if (RTS_IS_ERR(audio_enc)) {
-    //     zlog_fatal(c, "Failed to create audio encode channel, ret %d", audio_enc);
-    //     kill_stream(isp, vid_channel, audio_chn, audio_enc, tpool);
+    // h.audio_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_PCM, 16000);
+    // if (RTS_IS_ERR(h.audio_enc)) {
+    //     zlog_fatal(c, "Failed to create audio encode channel, ret %d", h.audio_enc);
+    //     kill_stream(&h);
     // }
-    // zlog_info(c, "Audio encode channel created: %d", audio_enc);
+    // zlog_info(c, "Audio encode channel created: %d", h.audio_enc);
     //
-    // ret = rts_av_bind(audio_chn, audio_enc);
+    // ret = rts_av_bind(h.audio_chn, h.audio_enc);
     // if (ret) {
     //     zlog_fatal(c, "Failed to bind audio capture & encode channels to RTS AV API, ret %d", ret);
-    //     kill_stream(isp, vid_channel, audio_chn, audio_enc, tpool);
+    //     kill_stream(&h);
     // }
     //
-    // ret = rts_av_enable_chn(audio_chn);
+    // ret = rts_av_enable_chn(h.audio_chn);
     // if (RTS_IS_ERR(ret)) {
     //     zlog_error(c, "Failed to enable audio capture channel, ret %d", ret);
-    //     kill_stream(isp, vid_channel, audio_chn, audio_enc, tpool);
+    //     kill_stream(&h);
     // } else {
-    //     zlog_info(c, "Audio capture channel enabled: %d", audio_chn);
+    //     zlog_info(c, "Audio capture channel enabled: %d", h.audio_chn);
     // }
     //
-    // ret = rts_av_enable_chn(audio_enc);
+    // ret = rts_av_enable_chn(h.audio_enc);
     // if (RTS_IS_ERR(ret)) {
     //     zlog_error(c, "Failed to enable audio encode channel, ret %d", ret);
-    //     kill_stream(isp, vid_channel, audio_chn, audio_enc, tpool);
+    //     kill_stream(&h);
     // } else {
-    //     zlog_info(c, "Audio encode channel enabled: %d", audio_enc);
+    //     zlog_info(c, "Audio encode channel enabled: %d", h.audio_enc);
     // }
 
     h.tpool = rts_pthreadpool_init(1);
@@ -374,7 +378,7 @@ int start_stream(streamer_settings config) {
         kill_stream(&h);
     }
 
-    rts_pthreadpool_add_task(h.tpool, ir_ctrl_thread, (void *) &config, NULL);
+    rts_pthreadpool_add_task(h.tpool, ir_ctrl_thread, (void *)&config, NULL);
     set_c_vbr(h.h264_enc, config.max_bitrate, config.min_bitrate);
     set_fps(config.fps);
     rts_av_start_recv(h.h264_enc);
@@ -385,25 +389,27 @@ int start_stream(streamer_settings config) {
         zlog_fatal(c, "Failed to create video sink, ret %d", ret);
         kill_stream(&h);
     }
-    // zlog_info(c, "Video sink created at %s", VIDEO_SINK);
-    // if (create_sink(audio_stream, AUDIO_SINK)) {
+    zlog_debug(c, "Video sink created at %s", VIDEO_SINK);
+
+    // FILE *audio_stream = create_sink(AUDIO_SINK);
+    // if (audio_stream == NULL) {
     //     zlog_fatal(c, "Failed to create audio sink, ret %d", ret);
-    //     kill_stream(isp, vid_channel, audio_chn, audio_enc, tpool);
+    //     kill_stream(&h);
     // }
     // zlog_info(c, "Audio sink created at %s", AUDIO_SINK);
 
     // Try load the V4L device
     int vfd = rts_isp_v4l2_open(isp_attr.isp_id);
     if (vfd > 0) {
-        zlog_info(c, "Opened the V4L2 fd %d", vfd);
+        zlog_debug(c, "Opened the V4L2 fd %d", vfd);
         rts_isp_v4l2_close(vfd);
     }
     // Toggle IR Cut at startup (disabled as of V03 as dispatch binary does this auto)
     change_ir_cut(1); // Always start as if it was day time
-    while (!g_exit) {
+    zlog_info(c, "Starting imager streamer");
+    while (g_exit == RTS_FALSE) {
         struct rts_av_buffer *vid_buffer = NULL;
         struct rts_av_buffer *aud_buffer = NULL;
-        usleep(1000);
 
         // Handle video
         if (rts_av_poll(h.h264_enc))
@@ -416,13 +422,15 @@ int start_stream(streamer_settings config) {
             } else {
                 fflush(video_stream);
             }
-            RTS_SAFE_RELEASE(vid_buffer, rts_av_put_buffer);
+            // Release the video buffer
+            rts_av_put_buffer(vid_buffer);
+            vid_buffer = NULL;
         }
 
         // Handle audio
-        // if (rts_av_poll(audio_enc))
+        // if (rts_av_poll(h.audio_enc))
         //     continue;
-        // if (rts_av_recv(audio_enc, &aud_buffer))
+        // if (rts_av_recv(h.audio_enc, &aud_buffer))
         //     continue;
         //
         // if (aud_buffer) {
@@ -433,6 +441,8 @@ int start_stream(streamer_settings config) {
         //     }
         //     RTS_SAFE_RELEASE(aud_buffer, rts_av_put_buffer);
         // }
+
+        usleep(1000); // Iterate every 1ms
     }
 
     kill_stream(&h);
