@@ -239,6 +239,7 @@ uint8_t create_sink(FILE** sink, const char* path) {
         return RTS_FALSE;
     }
     zlog_info(c, "Created sink at %s", path);
+    signal(SIGPIPE, SIG_IGN);
     return RTS_TRUE;
 }
 
@@ -344,47 +345,47 @@ int start_stream(streamer_settings config) {
     change_isp_setting(RTS_VIDEO_CTRL_ID_DEHAZE, config.dehaze);
 
     // -- AUDIO SETUP --
-    // memset(&aud_attr, 0, sizeof(aud_attr));
-    // snprintf(aud_attr.dev_node, sizeof(aud_attr.dev_node), "hw:0,1");
-    // aud_attr.rate = 8000;
-    // aud_attr.format = 16;
-    // aud_attr.channels = 1;
-    //
-    // h.audio_chn = rts_av_create_audio_capture_chn(&aud_attr);
-    // if (RTS_IS_ERR(h.audio_chn)) {
-    //     zlog_fatal(c, "Failed to create audio capture channel, ret %d", h.audio_chn);
-    //     kill_stream(&h);
-    // }
-    // zlog_info(c, "Audio capture channel created: %d", h.audio_chn);
-    //
-    // h.audio_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_PCM, 16000);
-    // if (RTS_IS_ERR(h.audio_enc)) {
-    //     zlog_fatal(c, "Failed to create audio encode channel, ret %d", h.audio_enc);
-    //     kill_stream(&h);
-    // }
-    // zlog_info(c, "Audio encode channel created: %d", h.audio_enc);
-    //
-    // ret = rts_av_bind(h.audio_chn, h.audio_enc);
-    // if (ret) {
-    //     zlog_fatal(c, "Failed to bind audio capture & encode channels to RTS AV API, ret %d", ret);
-    //     kill_stream(&h);
-    // }
-    //
-    // ret = rts_av_enable_chn(h.audio_chn);
-    // if (RTS_IS_ERR(ret)) {
-    //     zlog_error(c, "Failed to enable audio capture channel, ret %d", ret);
-    //     kill_stream(&h);
-    // } else {
-    //     zlog_info(c, "Audio capture channel enabled: %d", h.audio_chn);
-    // }
-    //
-    // ret = rts_av_enable_chn(h.audio_enc);
-    // if (RTS_IS_ERR(ret)) {
-    //     zlog_error(c, "Failed to enable audio encode channel, ret %d", ret);
-    //     kill_stream(&h);
-    // } else {
-    //     zlog_info(c, "Audio encode channel enabled: %d", h.audio_enc);
-    // }
+    memset(&aud_attr, 0, sizeof(aud_attr));
+    snprintf(aud_attr.dev_node, sizeof(aud_attr.dev_node), "hw:0,1");
+    aud_attr.rate = 8000;
+    aud_attr.format = 16;
+    aud_attr.channels = 1;
+
+    h.audio_chn = rts_av_create_audio_capture_chn(&aud_attr);
+    if (RTS_IS_ERR(h.audio_chn)) {
+        zlog_fatal(c, "Failed to create audio capture channel, ret %d", h.audio_chn);
+        kill_stream(&h);
+    }
+    zlog_info(c, "Audio capture channel created: %d", h.audio_chn);
+
+    h.audio_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_AAC, aud_attr.rate);
+    if (RTS_IS_ERR(h.audio_enc)) {
+        zlog_fatal(c, "Failed to create audio encode channel, ret %d", h.audio_enc);
+        kill_stream(&h);
+    }
+    zlog_info(c, "Audio encode channel created: %d", h.audio_enc);
+
+    ret = rts_av_bind(h.audio_chn, h.audio_enc);
+    if (ret) {
+        zlog_fatal(c, "Failed to bind audio capture & encode channels to RTS AV API, ret %d", ret);
+        kill_stream(&h);
+    }
+
+    ret = rts_av_enable_chn(h.audio_chn);
+    if (RTS_IS_ERR(ret)) {
+        zlog_error(c, "Failed to enable audio capture channel, ret %d", ret);
+        kill_stream(&h);
+    } else {
+        zlog_info(c, "Audio capture channel enabled: %d", h.audio_chn);
+    }
+
+    ret = rts_av_enable_chn(h.audio_enc);
+    if (RTS_IS_ERR(ret)) {
+        zlog_error(c, "Failed to enable audio encode channel, ret %d", ret);
+        kill_stream(&h);
+    } else {
+        zlog_info(c, "Audio encode channel enabled: %d", h.audio_enc);
+    }
 
     h.tpool = rts_pthreadpool_init(1);
     if (!h.tpool) {
@@ -395,6 +396,7 @@ int start_stream(streamer_settings config) {
     set_c_vbr(h.h264_enc, config.max_bitrate, config.min_bitrate);
     set_fps(config.fps);
     rts_av_start_recv(h.h264_enc);
+    rts_av_start_recv(h.audio_enc);
 
     FILE *video_stream = NULL;
     if (create_sink(&video_stream, VIDEO_SINK) == RTS_FALSE) {
@@ -402,13 +404,11 @@ int start_stream(streamer_settings config) {
         kill_stream(&h);
     }
 
-    // FILE *audio_stream = NULL;
-    // if (create_sink(audio_stream, AUDIO_SINK) == RTS_FALSE) {
-    //     zlog_fatal(c, "Failed to create audio sink, ret %d", ret);
-    //     kill_stream(&h);
-    // }
-    // zlog_debug(c, "Audio sink created at %s", AUDIO_SINK);
-    signal(SIGPIPE, SIG_IGN);
+    FILE *audio_stream = NULL;
+    if (create_sink(&audio_stream, AUDIO_SINK) == RTS_FALSE) {
+        zlog_fatal(c, "Failed to create audio sink, ret %d", ret);
+        kill_stream(&h);
+    }
 
     // Try load the V4L device
     int vfd = rts_isp_v4l2_open(isp_attr.isp_id);
@@ -420,7 +420,7 @@ int start_stream(streamer_settings config) {
     change_ir_cut(1); // Always start as if it was day time
     zlog_info(c, "Starting imager streamer");
     struct rts_av_buffer *vid_buffer = NULL;
-    // struct rts_av_buffer *aud_buffer = NULL;
+    struct rts_av_buffer *aud_buffer = NULL;
     while (g_exit == RTS_FALSE) {
         // Handle video
         if (rts_av_poll(h.h264_enc)) {
@@ -445,19 +445,19 @@ int start_stream(streamer_settings config) {
         }
 
         // Handle audio
-        // if (rts_av_poll(h.audio_enc))
-        //     continue;
-        // if (rts_av_recv(h.audio_enc, &aud_buffer))
-        //     continue;
-        //
-        // if (aud_buffer) {
-        //     if (fwrite(aud_buffer->vm_addr, 1, aud_buffer->bytesused, audio_stream) != aud_buffer->bytesused) {
-        //         zlog_error(c, "Possible SIGPIPE break from stream disconnection, skipping flush");
-        //     } else {
-        //         fflush(audio_stream);
-        //     }
-        //     RTS_SAFE_RELEASE(aud_buffer, rts_av_put_buffer);
-        // }
+        if (rts_av_poll(h.audio_enc))
+            continue;
+        if (rts_av_recv(h.audio_enc, &aud_buffer))
+            continue;
+
+        if (aud_buffer) {
+            if (fwrite(aud_buffer->vm_addr, 1, aud_buffer->bytesused, audio_stream) != aud_buffer->bytesused) {
+                zlog_error(c, "Possible SIGPIPE break from stream disconnection, skipping flush");
+            } else {
+                fflush(audio_stream);
+            }
+            RTS_SAFE_RELEASE(aud_buffer, rts_av_put_buffer);
+        }
 
         usleep(1000); // Iterate every 1ms
     }
@@ -509,7 +509,7 @@ static int parse_ini(void *user, const char *section, const char *name, const ch
 
 
 int main(int argc, char *argv[]) {
-    // setpriority(PRIO_PROCESS, getpid(), -5);
+    setpriority(PRIO_PROCESS, getpid(), -5);
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
 

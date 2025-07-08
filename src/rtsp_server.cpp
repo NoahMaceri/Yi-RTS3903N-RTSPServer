@@ -14,7 +14,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
 #include <rtsp_server.h>
 
 static int parse_ini(void* user, const char* section, const char* name, const char* value) {
@@ -67,9 +66,8 @@ int main(int argc, char *argv[]) {
     zlog_debug(c, "  Stream Name: %s", config.name);
 
     // Begin by setting up our usage environment:
-    UsageEnvironment *env = nullptr;
     TaskScheduler *scheduler = BasicTaskScheduler::createNew();
-    env = BasicUsageEnvironment::createNew(*scheduler);
+    BasicUsageEnvironment *env = BasicUsageEnvironment::createNew(*scheduler);
 
     UserAuthenticationDatabase *authDB = nullptr;
     if ((config.user != nullptr) && (config.pwd != nullptr)) {
@@ -83,12 +81,9 @@ int main(int argc, char *argv[]) {
         zlog_fatal(c, "Failed to create RTSP server: %s", env->getResultMsg());
         exit(EXIT_FAILURE);
     }
-
-    OutPacketBuffer::maxSize = 300000;
-    Boolean reuse_first_source = True;
-    ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name, config.name, "RTSP server");
-    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, reuse_first_source));
-    // sms->addSubsession(MP3AudioFileServerMediaSubsession::createNew(*env, AUDIO_SINK, True, True, nullptr));
+    OutPacketBuffer::maxSize = 150000;
+    ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name);
+    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, True));
     rtspServer->addServerMediaSession(sms);
     env->taskScheduler().doEventLoop(); // does not return
 
