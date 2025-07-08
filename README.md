@@ -94,14 +94,15 @@ The RTS3903N uses an ADC for sensing light. On some cameras the logic is inverte
 
 ## Credit
 - rtsp_server
-  - [`@roleoroleo`](https://github.com/roleoroleo) Original author
-  - [`@alienatedsec`](https://github.com/alienatedsec/) Modified version
-  - [`cjj25`](https://github.com/cjj25) Modified version
+  - @roleoroleo - Original author
+  - @alienatedsec - Modified version
+  - @cjj25 - Modified version
 - imager_stremaer
-  - [`@cjj25`](https://github.com/cjj25) Original author
+  - Realtek - Example sources 
+  - @cjj25 - Original author
 - sd_payload 
-  - [`@rage2dev`](https://github.com/rage2dev/) Original author
-  - [`@cjj25`](https://github.com/cjj25) Modified version
+  - @rage2dev - Original author
+  - @cjj25 - Modified version
 
 ## Resources
 - [Compiled binaries / tools for debugging and test](https://github.com/cjj25/RTS3903N-Tools)
