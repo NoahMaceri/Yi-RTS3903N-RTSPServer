@@ -3,6 +3,7 @@
 
 ## Background
 This work is based on Colin Jensen's [Yi-RTS3903N-RTSPServer](https://github.com/cjj25/Yi-RTS3903N-RTSPServer)
+
 **Important**: This method doesn't overwrite the existing flash, simply remove the SD card, and the 'hack' will be disabled.
 
 ## Known Compatible Firmware
@@ -94,14 +95,15 @@ The RTS3903N uses an ADC for sensing light. On some cameras the logic is inverte
 
 ## Credit
 - rtsp_server
-  - `roleo` Original author
-  - [`@alienatedsec`](https://github.com/alienatedsec/) Modified version
-  - [`cjj25`](https://github.com/cjj25) Modified version
+  - [`@roleoroleo`](https://github.com/roleoroleo): Original author
+  - [`@alienatedsec`](https://github.com/alienatedsec/): Modified version
+  - [`@cjj25`](https://github.com/cjj25): Modified version
 - imager_stremaer
-  - [`@cjj25`](https://github.com/cjj25) Original author
+  - [`Realtek`](https://www.realtek.com/): rt_stream examples 
+  - [`@cjj25`](https://github.com/cjj25): Original author
 - sd_payload 
-  - [@rage2dev](https://github.com/rage2dev/) Original author
-  - [`@cjj25`](https://github.com/cjj25) Modified version
+  - [`@rage2dev`](https://github.com/rage2dev/): Original author
+  - [`@cjj25`](https://github.com/cjj25): Modified version
 
 ## Resources
-- [Compiled binaries / tools for debugging and test](https://github.com/cjj25/RTS3903N-Tools)
+- [Compiled binaries/tools for debugging and test](https://github.com/cjj25/RTS3903N-Tools)

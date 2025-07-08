@@ -24,7 +24,6 @@
 #include <rtscamkit.h>
 #include <rtsavapi.h>
 #include <rtsvideo.h>
-#include <rtsaudio.h>
 #include <rts_pthreadpool.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -281,15 +280,12 @@ void kill_stream(const handlers *h) {
 int start_stream(streamer_settings config) {
     struct rts_isp_attr isp_attr;
     struct rts_h264_attr h264_attr;
-    struct rts_audio_attr aud_attr;
     struct rts_av_profile profile;
 
     handlers h = {
         .tpool = NULL,
         .isp = -1,
         .h264_enc = -1,
-        .audio_chn = -1,
-        .audio_enc = -1
     };
 
     // -- VIDEO SETUP --
@@ -317,7 +313,6 @@ int start_stream(streamer_settings config) {
     h264_attr.level = H264_LEVEL_4;
     h264_attr.qp = -1;
     h264_attr.bps = config.max_bitrate;
-    // set the GOP to the same as the FPS to improve stream latency
     h264_attr.gop = config.fps * 2;
     h264_attr.videostab = 0;
     h264_attr.rotation = RTS_AV_ROTATION_0;
@@ -533,23 +528,23 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    zlog_debug(c, "Streamer settings:");
-    zlog_debug(c, "  Noise reduction: %d", config.noise_reduction);
-    zlog_debug(c, "  LDC: %d", config.ldc);
-    zlog_debug(c, "  Detail enhancement: %d", config.detail_enhancement);
-    zlog_debug(c, "  3DNR: %d", config.three_dnr);
-    zlog_debug(c, "  Mirror: %d", config.mirror);
-    zlog_debug(c, "  Flip: %d", config.flip);
-    zlog_debug(c, "  ADC cutoff: %d", config.adc_cutoff);
-    zlog_debug(c, "  ADC cutoff (inverted): %d", config.adc_cutoff_inverted);
-    zlog_debug(c, "  Min bitrate: %d", config.min_bitrate);
-    zlog_debug(c, "  Max bitrate: %d", config.max_bitrate);
-    zlog_debug(c, "  Width: %d", config.width);
-    zlog_debug(c, "  Height: %d", config.height);
-    zlog_debug(c, "  FPS: %d", config.fps);
-    zlog_debug(c, "  Invert IR Cut: %d", config.invert_ir_cut);
-    zlog_debug(c, "  In/Out Door Mode: %d", config.in_out_door_mode);
-    zlog_debug(c, "  Dehaze: %d", config.dehaze);
+    // zlog_debug(c, "Streamer settings:");
+    // zlog_debug(c, "  Noise reduction: %d", config.noise_reduction);
+    // zlog_debug(c, "  LDC: %d", config.ldc);
+    // zlog_debug(c, "  Detail enhancement: %d", config.detail_enhancement);
+    // zlog_debug(c, "  3DNR: %d", config.three_dnr);
+    // zlog_debug(c, "  Mirror: %d", config.mirror);
+    // zlog_debug(c, "  Flip: %d", config.flip);
+    // zlog_debug(c, "  ADC cutoff: %d", config.adc_cutoff);
+    // zlog_debug(c, "  ADC cutoff (inverted): %d", config.adc_cutoff_inverted);
+    // zlog_debug(c, "  Min bitrate: %d", config.min_bitrate);
+    // zlog_debug(c, "  Max bitrate: %d", config.max_bitrate);
+    // zlog_debug(c, "  Width: %d", config.width);
+    // zlog_debug(c, "  Height: %d", config.height);
+    // zlog_debug(c, "  FPS: %d", config.fps);
+    // zlog_debug(c, "  Invert IR Cut: %d", config.invert_ir_cut);
+    // zlog_debug(c, "  In/Out Door Mode: %d", config.in_out_door_mode);
+    // zlog_debug(c, "  Dehaze: %d", config.dehaze);
 
     // Uncomment to get all possible ISP options printed to stdout
     // get_all_isp_options();

@@ -81,9 +81,11 @@ int main(int argc, char *argv[]) {
         zlog_fatal(c, "Failed to create RTSP server: %s", env->getResultMsg());
         exit(EXIT_FAILURE);
     }
-    OutPacketBuffer::maxSize = 150000;
-    ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name);
-    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, True));
+
+    OutPacketBuffer::maxSize = 300000;
+    Boolean reuse_first_source = True;
+    ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name, "", "");
+    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, reuse_first_source));
     rtspServer->addServerMediaSession(sms);
     env->taskScheduler().doEventLoop(); // does not return
 
