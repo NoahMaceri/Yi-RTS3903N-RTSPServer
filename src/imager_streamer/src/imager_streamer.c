@@ -24,11 +24,13 @@
 #include <rtscamkit.h>
 #include <rtsavapi.h>
 #include <rtsvideo.h>
+#include <rtsaudio.h>
 #include <rts_pthreadpool.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <rts_io_adc.h>
 #include <sys/resource.h>
+#include <pthread.h>
 #include <zlog.h>
 #include <ini.h>
 #include <ver.h>
@@ -39,6 +41,10 @@ uint8_t g_exit = RTS_FALSE;
 int8_t g_ir_cut_mode = -1; // 0 = day, 1 = night
 
 zlog_category_t *c;
+
+#define F_LINUX_SPECIFIC_BASE	1024
+#define F_SETPIPE_SZ	(F_LINUX_SPECIFIC_BASE + 7)
+#define F_GETPIPE_SZ	(F_LINUX_SPECIFIC_BASE + 8)
 
 typedef struct {
     int32_t noise_reduction;
@@ -61,10 +67,11 @@ typedef struct {
 
 typedef struct {
     PthreadPool tpool;
-    int32_t isp;
-    int32_t h264_enc;
-    int32_t audio_chn;
-    int32_t audio_enc;
+    int32_t vid_cap;
+    int32_t vid_enc;
+    int32_t aud_cap;
+    int32_t aud_aec;
+    int32_t aud_enc;
 } handlers;
 
 #define ADC_ITERATIONS 15
@@ -221,7 +228,28 @@ static void ir_ctrl_thread(void *arg) {
     zlog_info(c, "IR control thread exiting");
 }
 
-uint8_t create_sink(FILE** sink, const char* path) {
+void* unlock_fifo_thread(void *data) {
+    int fd;
+    const char* fifo_name = (const char *) data;
+    unsigned char buffer_fifo[1024];
+
+    fd = open(fifo_name, O_RDONLY);
+    read(fd, buffer_fifo, 1024);
+    close(fd);
+
+    return NULL;
+}
+
+void sigpipe_handler(int unused) {
+    // Do nothing
+}
+
+uint8_t create_sink(FILE** sink, const char* path, uint32_t pipe_sz) {
+    const struct sigaction sa = {
+        .sa_handler = sigpipe_handler,
+        .sa_flags = 0
+    };
+    sigaction(SIGPIPE, &sa, NULL);
     // remove any existing fifo file
     if (unlink(path) == 0) {
         zlog_debug(c, "Removed existing fifo file %s", path);
@@ -231,45 +259,65 @@ uint8_t create_sink(FILE** sink, const char* path) {
         zlog_fatal(c, "Failed to create fifo file %s", path);
         return RTS_FALSE;
     }
+    pthread_t unlock_thread;
+    if(pthread_create(&unlock_thread, NULL, unlock_fifo_thread, (void *) path)) {
+        zlog_fatal(c, "Failed to unlock fifo %s", path);
+        return RTS_FALSE;
+    }
+    pthread_detach(unlock_thread);
     // open the fifo file for writing
     *sink = fopen(path, "wb");
     if (!*sink) {
         zlog_fatal(c, "Failed to open fifo file %s", path);
         return RTS_FALSE;
     }
+    if (fcntl(fileno(*sink), F_SETPIPE_SZ, pipe_sz) != pipe_sz) {
+        zlog_error(c, "Failed to set pipe size of %s to %d", path, pipe_sz);
+    };
     zlog_info(c, "Created sink at %s", path);
-    signal(SIGPIPE, SIG_IGN);
     return RTS_TRUE;
 }
 
-
 void kill_stream(const handlers *h) {
+    zlog_info(c, "Stopping and destroying RTS channels");
     g_exit = RTS_TRUE;
     sleep(2); // Give the IR control thread time to exit
     rts_pthreadpool_destroy(h->tpool);
-    if (h->isp >= 0) {
-        rts_av_disable_chn(h->isp);
-        rts_av_destroy_chn(h->isp);
+
+    // VIDEO TEAR DOWN
+    if (h->vid_cap >= 0 && h->vid_enc >= 0) {
+        rts_av_unbind(h->vid_cap, h->vid_enc);
     }
-    if (h->h264_enc >= 0) {
-        rts_av_stop_recv(h->h264_enc);
-        rts_av_disable_chn(h->h264_enc);
-        rts_av_destroy_chn(h->h264_enc);
+    if (h->vid_enc >= 0) {
+        rts_av_stop_recv(h->vid_enc);
+        rts_av_disable_chn(h->vid_enc);
+        rts_av_destroy_chn(h->vid_enc);
     }
-    if (h->audio_chn >= 0) {
-        rts_av_disable_chn(h->audio_chn);
-        rts_av_destroy_chn(h->audio_chn);
+    if (h->vid_cap >= 0) {
+        rts_av_disable_chn(h->vid_cap);
+        rts_av_destroy_chn(h->vid_cap);
     }
-    if (h->audio_enc >= 0) {
-        rts_av_stop_recv(h->audio_enc);
-        rts_av_disable_chn(h->audio_enc);
-        rts_av_destroy_chn(h->audio_enc);
+
+    // AUDIO TEAR DOWN
+    if (h->aud_cap >= 0 && h->aud_aec >= 0) {
+        rts_av_unbind(h->aud_cap, h->aud_aec);
     }
-    if (h->isp >= 0 && h->h264_enc >= 0) {
-        rts_av_unbind(h->isp, h->h264_enc);
+    if (h->aud_aec >= 0 && h->aud_enc >= 0) {
+        rts_av_unbind(h->aud_aec, h->aud_cap);
     }
-    if (h->audio_chn >= 0 && h->audio_enc >= 0) {
-        rts_av_unbind(h->audio_chn, h->audio_enc);
+
+    if (h->aud_cap >= 0) {
+        rts_av_disable_chn(h->aud_cap);
+        rts_av_destroy_chn(h->aud_cap);
+    }
+    if (h->aud_aec >= 0) {
+        rts_av_disable_chn(h->aud_aec);
+        rts_av_destroy_chn(h->aud_aec);
+    }
+    if (h->aud_enc >= 0) {
+        rts_av_stop_recv(h->aud_enc);
+        rts_av_disable_chn(h->aud_enc);
+        rts_av_destroy_chn(h->aud_enc);
     }
 
     rts_av_release();
@@ -280,32 +328,36 @@ void kill_stream(const handlers *h) {
 int start_stream(streamer_settings config) {
     struct rts_isp_attr isp_attr;
     struct rts_h264_attr h264_attr;
-    struct rts_av_profile profile;
+    struct rts_audio_attr aud_attr;
+    struct rts_av_profile vid_profile;
 
     handlers h = {
         .tpool = NULL,
-        .isp = -1,
-        .h264_enc = -1,
+        .vid_cap = -1,
+        .vid_enc = -1,
+        .aud_cap = -1,
+        .aud_aec = -1,
+        .aud_enc = -1
     };
 
     // -- VIDEO SETUP --
     isp_attr.isp_id = 0;
     isp_attr.isp_buf_num = 2;
-    h.isp = rts_av_create_isp_chn(&isp_attr);
+    h.vid_cap = rts_av_create_isp_chn(&isp_attr);
 
-    if (h.isp < 0) {
-        zlog_fatal(c, "Failed to create ISP channel, ret %d", h.isp);
+    if (h.vid_cap < 0) {
+        zlog_fatal(c, "Failed to create ISP channel, ret %d", h.vid_cap);
         kill_stream(&h);
     }
-    zlog_debug(c, "ISP channel created: %d", h.isp);
+    zlog_debug(c, "ISP channel created: %d", h.vid_cap);
 
-    profile.fmt = RTS_V_FMT_YUV420SEMIPLANAR;
-    profile.video.width = config.width;
-    profile.video.height = config.height;
-    profile.video.numerator = 1;
-    profile.video.denominator = config.fps;
+    vid_profile.fmt = RTS_V_FMT_YUV420SEMIPLANAR;
+    vid_profile.video.width = config.width;
+    vid_profile.video.height = config.height;
+    vid_profile.video.numerator = 1;
+    vid_profile.video.denominator = config.fps;
 
-    int ret = rts_av_set_profile(h.isp, &profile);
+    int ret = rts_av_set_profile(h.vid_cap, &vid_profile);
     if (ret) {
         zlog_fatal(c, "Failed to set ISP profile, ret %d", ret);
         kill_stream(&h);
@@ -316,20 +368,20 @@ int start_stream(streamer_settings config) {
     h264_attr.gop = config.fps * 2;
     h264_attr.videostab = 0;
     h264_attr.rotation = RTS_AV_ROTATION_0;
-    h.h264_enc = rts_av_create_h264_chn(&h264_attr);
-    if (h.h264_enc < 0) {
-        zlog_fatal(c, "Failed to create H264 channel, ret %d", h.h264_enc);
+    h.vid_enc = rts_av_create_h264_chn(&h264_attr);
+    if (h.vid_enc < 0) {
+        zlog_fatal(c, "Failed to create H264 channel, ret %d", h.vid_enc);
         kill_stream(&h);
     }
-    zlog_debug(c, "H264 channel created: %d", h.h264_enc);
+    zlog_debug(c, "H264 channel created: %d", h.vid_enc);
 
-    ret = rts_av_bind(h.isp, h.h264_enc);
+    ret = rts_av_bind(h.vid_cap, h.vid_enc);
     if (ret) {
         zlog_fatal(c, "Failed to bind ISP & H264 encoder to RTS AV API, ret %d", ret);
         kill_stream(&h);
     }
-    rts_av_enable_chn(h.isp);
-    rts_av_enable_chn(h.h264_enc);
+    rts_av_enable_chn(h.vid_cap);
+    rts_av_enable_chn(h.vid_enc);
     change_isp_setting(RTS_VIDEO_CTRL_ID_NOISE_REDUCTION, config.noise_reduction);
     change_isp_setting(RTS_VIDEO_CTRL_ID_LDC, config.ldc);
     change_isp_setting(RTS_VIDEO_CTRL_ID_DETAIL_ENHANCEMENT, config.detail_enhancement);
@@ -340,47 +392,93 @@ int start_stream(streamer_settings config) {
     change_isp_setting(RTS_VIDEO_CTRL_ID_DEHAZE, config.dehaze);
 
     // -- AUDIO SETUP --
+    // capture -> aec -> resamp -> encode
     memset(&aud_attr, 0, sizeof(aud_attr));
-    snprintf(aud_attr.dev_node, sizeof(aud_attr.dev_node), "hw:0,1");
-    aud_attr.rate = 8000;
+    snprintf(aud_attr.dev_node, sizeof(aud_attr.dev_node), "hw:0");
+    aud_attr.rate = 16000;
     aud_attr.format = 16;
     aud_attr.channels = 1;
 
-    h.audio_chn = rts_av_create_audio_capture_chn(&aud_attr);
-    if (RTS_IS_ERR(h.audio_chn)) {
-        zlog_fatal(c, "Failed to create audio capture channel, ret %d", h.audio_chn);
+    h.aud_cap = rts_av_create_audio_capture_chn(&aud_attr);
+    if (RTS_IS_ERR(h.aud_cap)) {
+        zlog_fatal(c, "Failed to create audio capture channel, ret %d", h.aud_cap);
         kill_stream(&h);
     }
-    zlog_info(c, "Audio capture channel created: %d", h.audio_chn);
+    zlog_info(c, "Audio capture channel created: %d", h.aud_cap);
 
-    h.audio_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_AAC, aud_attr.rate);
-    if (RTS_IS_ERR(h.audio_enc)) {
-        zlog_fatal(c, "Failed to create audio encode channel, ret %d", h.audio_enc);
+    h.aud_aec = rts_av_create_audio_aec_chn();
+    if (RTS_IS_ERR(h.aud_aec)) {
+        zlog_fatal(c, "Failed to create audio AEC channel, ret %d", h.aud_aec);
         kill_stream(&h);
     }
-    zlog_info(c, "Audio encode channel created: %d", h.audio_enc);
+    zlog_info(c, "Audio AEC channel created: %d", h.aud_aec);
 
-    ret = rts_av_bind(h.audio_chn, h.audio_enc);
+    h.aud_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_AAC, aud_attr.rate);
+    if (RTS_IS_ERR(h.aud_enc )) {
+        zlog_fatal(c, "Failed to create audio encode channel, ret %d", h.aud_enc );
+        kill_stream(&h);
+    }
+    zlog_info(c, "Audio encode channel created: %d", h.aud_enc );
+
+    // capture -> aec
+    ret = rts_av_bind(h.aud_cap, h.aud_aec);
     if (ret) {
-        zlog_fatal(c, "Failed to bind audio capture & encode channels to RTS AV API, ret %d", ret);
+        zlog_fatal(c, "Failed to bind audio capture to aec, ret %d", ret);
         kill_stream(&h);
+    } else {
+        zlog_info(c, "Audio capture bound to AEC channel: %d", h.aud_aec);
     }
 
-    ret = rts_av_enable_chn(h.audio_chn);
+    // aec -> encode
+    ret = rts_av_bind(h.aud_aec, h.aud_enc);
+    if (ret) {
+        zlog_fatal(c, "Failed to bind aec to encode, ret %d", ret);
+        kill_stream(&h);
+    } else {
+        zlog_info(c, "Audio enchacement channel bound to encode channel: %d", h.aud_enc);
+    }
+
+    // capture
+    ret = rts_av_enable_chn(h.aud_cap);
     if (RTS_IS_ERR(ret)) {
         zlog_error(c, "Failed to enable audio capture channel, ret %d", ret);
         kill_stream(&h);
     } else {
-        zlog_info(c, "Audio capture channel enabled: %d", h.audio_chn);
+        zlog_info(c, "Audio capture channel enabled: %d", h.aud_cap);
     }
 
-    ret = rts_av_enable_chn(h.audio_enc);
+    // aec
+    ret = rts_av_enable_chn(h.aud_aec);
+    if (RTS_IS_ERR(ret)) {
+        zlog_error(c, "Failed to enable audio AEC channel, ret %d", ret);
+        kill_stream(&h);
+    } else {
+        zlog_info(c, "Audio AEC channel enabled: %d", h.aud_aec);
+    }
+
+    // encode
+    ret = rts_av_enable_chn(h.aud_enc);
     if (RTS_IS_ERR(ret)) {
         zlog_error(c, "Failed to enable audio encode channel, ret %d", ret);
         kill_stream(&h);
     } else {
-        zlog_info(c, "Audio encode channel enabled: %d", h.audio_enc);
+        zlog_info(c, "Audio encode channel enabled: %d", h.aud_enc);
     }
+
+    // AEC control
+    struct rts_aec_control *aec_ctrl;
+    rts_av_query_aec_ctrl(h.aud_aec, &aec_ctrl);
+    aec_ctrl->aec_enable=1;
+    aec_ctrl->ns_enable=1;
+    aec_ctrl->ns_level=0x23;
+    ret = rts_av_set_aec_ctrl(aec_ctrl);
+    if (RTS_IS_ERR(ret)) {
+        zlog_fatal(c, "Failed to set AEC control, ret %d", ret);
+        kill_stream(&h);
+    } else {
+        zlog_info(c, "AEC control set successfully");
+    }
+    rts_av_release_aec_ctrl(aec_ctrl);
 
     h.tpool = rts_pthreadpool_init(1);
     if (!h.tpool) {
@@ -388,19 +486,27 @@ int start_stream(streamer_settings config) {
     }
 
     rts_pthreadpool_add_task(h.tpool, ir_ctrl_thread, (void *)&config, NULL);
-    set_c_vbr(h.h264_enc, config.max_bitrate, config.min_bitrate);
+    set_c_vbr(h.vid_enc, config.max_bitrate, config.min_bitrate);
     set_fps(config.fps);
-    rts_av_start_recv(h.h264_enc);
-    rts_av_start_recv(h.audio_enc);
+    ret = rts_av_start_recv(h.vid_enc);
+    if (ret) {
+        zlog_fatal(c, "Failed to start H264 receive, ret %d", ret);
+        kill_stream(&h);
+    }
+    ret = rts_av_start_recv(h.aud_enc);
+    if (ret) {
+        zlog_fatal(c, "Failed to start audio encode receive, ret %d", ret);
+        kill_stream(&h);
+    }
 
     FILE *video_stream = NULL;
-    if (create_sink(&video_stream, VIDEO_SINK) == RTS_FALSE) {
+    if (create_sink(&video_stream, VIDEO_FIFO, VIDEO_FIFO_SIZE) == RTS_FALSE) {
         zlog_fatal(c, "Failed to create video sink, ret %d", ret);
         kill_stream(&h);
     }
 
     FILE *audio_stream = NULL;
-    if (create_sink(&audio_stream, AUDIO_SINK) == RTS_FALSE) {
+    if (create_sink(&audio_stream, AUDIO_FIFO, AUDIO_FIFO_SIZE) == RTS_FALSE) {
         zlog_fatal(c, "Failed to create audio sink, ret %d", ret);
         kill_stream(&h);
     }
@@ -418,12 +524,12 @@ int start_stream(streamer_settings config) {
     struct rts_av_buffer *aud_buffer = NULL;
     while (g_exit == RTS_FALSE) {
         // Handle video
-        if (rts_av_poll(h.h264_enc)) {
+        if (rts_av_poll(h.vid_enc)) {
             usleep(1000);
             continue;
         }
 
-        if (rts_av_recv(h.h264_enc, &vid_buffer)) {
+        if (rts_av_recv(h.vid_enc, &vid_buffer)) {
             usleep(1000);
             continue;
         }
@@ -435,14 +541,13 @@ int start_stream(streamer_settings config) {
                 fflush(video_stream);
             }
             // Release the video buffer
-            rts_av_put_buffer(vid_buffer);
-            vid_buffer = NULL;
+            RTS_SAFE_RELEASE(vid_buffer, rts_av_put_buffer);
         }
 
         // Handle audio
-        if (rts_av_poll(h.audio_enc))
+        if (rts_av_poll(h.aud_enc))
             continue;
-        if (rts_av_recv(h.audio_enc, &aud_buffer))
+        if (rts_av_recv(h.aud_enc, &aud_buffer))
             continue;
 
         if (aud_buffer) {

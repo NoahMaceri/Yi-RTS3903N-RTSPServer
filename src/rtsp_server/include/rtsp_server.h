@@ -2,6 +2,7 @@
 #define RTSP_SERVER_H
 
 #include <stdint.h>
+#include <fcntl.h>
 #include <liveMedia.hh>
 #include <BasicUsageEnvironment.hh>
 #include <zlog.h>

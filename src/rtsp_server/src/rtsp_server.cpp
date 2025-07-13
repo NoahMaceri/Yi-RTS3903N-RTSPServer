@@ -82,10 +82,10 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    OutPacketBuffer::maxSize = 300000;
-    Boolean reuse_first_source = True;
+    OutPacketBuffer::maxSize = VIDEO_FIFO_SIZE;
     ServerMediaSession *sms= ServerMediaSession::createNew(*env, config.name, "", "");
-    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_SINK, reuse_first_source));
+    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, VIDEO_FIFO, True));
+    sms->addSubsession(ADTSAudioFileServerMediaSubsession::createNew(*env, AUDIO_FIFO, True));
     rtspServer->addServerMediaSession(sms);
     env->taskScheduler().doEventLoop(); // does not return
 

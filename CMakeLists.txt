@@ -24,14 +24,18 @@ add_subdirectory(third-party/zlog)
 include_directories(${CMAKE_SOURCE_DIR}/third-party/zlog/src)
 # rtscore
 add_subdirectory(third-party/rtscore)
+message(STATUS "RTSCORE libs ${rtscore_LIBS}")
 
 # -- EXECUTABLES --
 include_directories(
         ${CMAKE_BINARY_DIR}
-        includes
+        src/includes
+        src/rtsp_server/include
 )
 # rtsp_server
-add_executable(rtsp_server src/rtsp_server.cpp)
+add_executable(rtsp_server
+        src/rtsp_server/src/rtsp_server.cpp
+)
 target_link_libraries(rtsp_server
     groupsock
     BasicUsageEnvironment
@@ -42,19 +46,16 @@ target_link_libraries(rtsp_server
 )
 
 # imager_streamer
-file(GLOB IMAGER_STREAMER_LIBS ${CMAKE_SOURCE_DIR}/imager_streamer/lib/*.so)
 add_executable(imager_streamer
-        src/stream.c
+        src/imager_streamer/src/imager_streamer.c
 )
 target_link_libraries(imager_streamer
-        ${IMAGER_STREAMER_LIBS}
         inih
         zlog
         rtscore
 )
 
 # -- PACKAGING --
-message(STATUS "RTSCORE libs ${rtscore_LIBS}")
 add_custom_target(package_${PROJECT_NAME} COMMAND
         # if out folder exists, remove it
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/out
