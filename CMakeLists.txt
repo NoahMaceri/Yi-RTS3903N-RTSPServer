@@ -22,9 +22,8 @@ add_subdirectory(third-party/inih)
 # zlog
 add_subdirectory(third-party/zlog)
 include_directories(${CMAKE_SOURCE_DIR}/third-party/zlog/src)
-# rtscore
-add_subdirectory(third-party/rtscore)
-message(STATUS "RTSCORE libs ${rtscore_LIBS}")
+# extern_libs
+add_subdirectory(libs)
 
 # -- EXECUTABLES --
 include_directories(
@@ -33,8 +32,10 @@ include_directories(
         src/rtsp_server/include
 )
 # rtsp_server
+# glob for all cpp
+file(GLOB_RECURSE rtsp_server_srcs ${CMAKE_SOURCE_DIR}/src/rtsp_server/src/*.cpp)
 add_executable(rtsp_server
-        src/rtsp_server/src/rtsp_server.cpp
+    ${rtsp_server_srcs}
 )
 target_link_libraries(rtsp_server
     groupsock
@@ -43,6 +44,17 @@ target_link_libraries(rtsp_server
     UsageEnvironment
     inih
     zlog
+    extern_libs
+)
+
+# audio_streamer
+add_executable(audio_streamer
+        src/audio_streamer/src/audio_streamer.c
+)
+target_link_libraries(audio_streamer
+        inih
+        zlog
+        extern_libs
 )
 
 # imager_streamer
@@ -52,7 +64,7 @@ add_executable(imager_streamer
 target_link_libraries(imager_streamer
         inih
         zlog
-        rtscore
+        extern_libs
 )
 
 # -- PACKAGING --
@@ -74,7 +86,7 @@ add_custom_target(package_${PROJECT_NAME} COMMAND
             ${CMAKE_BINARY_DIR}/imager_streamer
             ${CMAKE_BINARY_DIR}/out
         COMMAND ${CMAKE_COMMAND} -E copy
-            ${rtscore_LIBS}
+            ${extern_libs_ALL}
             ${CMAKE_BINARY_DIR}/out/lib
         COMMAND ${CMAKE_COMMAND} -E copy
             ${TOOLCHAIN_FOLDER}/lib/libstdc++.so.6

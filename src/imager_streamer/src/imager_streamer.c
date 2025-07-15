@@ -24,7 +24,6 @@
 #include <rtscamkit.h>
 #include <rtsavapi.h>
 #include <rtsvideo.h>
-#include <rtsaudio.h>
 #include <rts_pthreadpool.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -69,9 +68,6 @@ typedef struct {
     PthreadPool tpool;
     int32_t vid_cap;
     int32_t vid_enc;
-    int32_t aud_cap;
-    int32_t aud_aec;
-    int32_t aud_enc;
 } handlers;
 
 #define ADC_ITERATIONS 15
@@ -244,7 +240,7 @@ void sigpipe_handler(int unused) {
     // Do nothing
 }
 
-uint8_t create_sink(FILE** sink, const char* path, uint32_t pipe_sz) {
+uint8_t create_sink(FILE** sink, const char* path) {
     const struct sigaction sa = {
         .sa_handler = sigpipe_handler,
         .sa_flags = 0
@@ -271,9 +267,6 @@ uint8_t create_sink(FILE** sink, const char* path, uint32_t pipe_sz) {
         zlog_fatal(c, "Failed to open fifo file %s", path);
         return RTS_FALSE;
     }
-    if (fcntl(fileno(*sink), F_SETPIPE_SZ, pipe_sz) != pipe_sz) {
-        zlog_error(c, "Failed to set pipe size of %s to %d", path, pipe_sz);
-    };
     zlog_info(c, "Created sink at %s", path);
     return RTS_TRUE;
 }
@@ -298,28 +291,6 @@ void kill_stream(const handlers *h) {
         rts_av_destroy_chn(h->vid_cap);
     }
 
-    // AUDIO TEAR DOWN
-    if (h->aud_cap >= 0 && h->aud_aec >= 0) {
-        rts_av_unbind(h->aud_cap, h->aud_aec);
-    }
-    if (h->aud_aec >= 0 && h->aud_enc >= 0) {
-        rts_av_unbind(h->aud_aec, h->aud_cap);
-    }
-
-    if (h->aud_cap >= 0) {
-        rts_av_disable_chn(h->aud_cap);
-        rts_av_destroy_chn(h->aud_cap);
-    }
-    if (h->aud_aec >= 0) {
-        rts_av_disable_chn(h->aud_aec);
-        rts_av_destroy_chn(h->aud_aec);
-    }
-    if (h->aud_enc >= 0) {
-        rts_av_stop_recv(h->aud_enc);
-        rts_av_disable_chn(h->aud_enc);
-        rts_av_destroy_chn(h->aud_enc);
-    }
-
     rts_av_release();
     zlog_info(c, "Stream stopped and resources released");
     _exit(1);
@@ -328,16 +299,12 @@ void kill_stream(const handlers *h) {
 int start_stream(streamer_settings config) {
     struct rts_isp_attr isp_attr;
     struct rts_h264_attr h264_attr;
-    struct rts_audio_attr aud_attr;
     struct rts_av_profile vid_profile;
 
     handlers h = {
         .tpool = NULL,
         .vid_cap = -1,
         .vid_enc = -1,
-        .aud_cap = -1,
-        .aud_aec = -1,
-        .aud_enc = -1
     };
 
     // -- VIDEO SETUP --
@@ -391,94 +358,6 @@ int start_stream(streamer_settings config) {
     change_isp_setting(RTS_VIDEO_CTRL_ID_IN_OUT_DOOR_MODE, config.in_out_door_mode);
     change_isp_setting(RTS_VIDEO_CTRL_ID_DEHAZE, config.dehaze);
 
-    // -- AUDIO SETUP --
-    // capture -> aec -> resamp -> encode
-    memset(&aud_attr, 0, sizeof(aud_attr));
-    snprintf(aud_attr.dev_node, sizeof(aud_attr.dev_node), "hw:0");
-    aud_attr.rate = 16000;
-    aud_attr.format = 16;
-    aud_attr.channels = 1;
-
-    h.aud_cap = rts_av_create_audio_capture_chn(&aud_attr);
-    if (RTS_IS_ERR(h.aud_cap)) {
-        zlog_fatal(c, "Failed to create audio capture channel, ret %d", h.aud_cap);
-        kill_stream(&h);
-    }
-    zlog_info(c, "Audio capture channel created: %d", h.aud_cap);
-
-    h.aud_aec = rts_av_create_audio_aec_chn();
-    if (RTS_IS_ERR(h.aud_aec)) {
-        zlog_fatal(c, "Failed to create audio AEC channel, ret %d", h.aud_aec);
-        kill_stream(&h);
-    }
-    zlog_info(c, "Audio AEC channel created: %d", h.aud_aec);
-
-    h.aud_enc = rts_av_create_audio_encode_chn(RTS_AUDIO_TYPE_ID_AAC, aud_attr.rate);
-    if (RTS_IS_ERR(h.aud_enc )) {
-        zlog_fatal(c, "Failed to create audio encode channel, ret %d", h.aud_enc );
-        kill_stream(&h);
-    }
-    zlog_info(c, "Audio encode channel created: %d", h.aud_enc );
-
-    // capture -> aec
-    ret = rts_av_bind(h.aud_cap, h.aud_aec);
-    if (ret) {
-        zlog_fatal(c, "Failed to bind audio capture to aec, ret %d", ret);
-        kill_stream(&h);
-    } else {
-        zlog_info(c, "Audio capture bound to AEC channel: %d", h.aud_aec);
-    }
-
-    // aec -> encode
-    ret = rts_av_bind(h.aud_aec, h.aud_enc);
-    if (ret) {
-        zlog_fatal(c, "Failed to bind aec to encode, ret %d", ret);
-        kill_stream(&h);
-    } else {
-        zlog_info(c, "Audio enchacement channel bound to encode channel: %d", h.aud_enc);
-    }
-
-    // capture
-    ret = rts_av_enable_chn(h.aud_cap);
-    if (RTS_IS_ERR(ret)) {
-        zlog_error(c, "Failed to enable audio capture channel, ret %d", ret);
-        kill_stream(&h);
-    } else {
-        zlog_info(c, "Audio capture channel enabled: %d", h.aud_cap);
-    }
-
-    // aec
-    ret = rts_av_enable_chn(h.aud_aec);
-    if (RTS_IS_ERR(ret)) {
-        zlog_error(c, "Failed to enable audio AEC channel, ret %d", ret);
-        kill_stream(&h);
-    } else {
-        zlog_info(c, "Audio AEC channel enabled: %d", h.aud_aec);
-    }
-
-    // encode
-    ret = rts_av_enable_chn(h.aud_enc);
-    if (RTS_IS_ERR(ret)) {
-        zlog_error(c, "Failed to enable audio encode channel, ret %d", ret);
-        kill_stream(&h);
-    } else {
-        zlog_info(c, "Audio encode channel enabled: %d", h.aud_enc);
-    }
-
-    // AEC control
-    struct rts_aec_control *aec_ctrl;
-    rts_av_query_aec_ctrl(h.aud_aec, &aec_ctrl);
-    aec_ctrl->aec_enable=1;
-    aec_ctrl->ns_enable=1;
-    aec_ctrl->ns_level=0x23;
-    ret = rts_av_set_aec_ctrl(aec_ctrl);
-    if (RTS_IS_ERR(ret)) {
-        zlog_fatal(c, "Failed to set AEC control, ret %d", ret);
-        kill_stream(&h);
-    } else {
-        zlog_info(c, "AEC control set successfully");
-    }
-    rts_av_release_aec_ctrl(aec_ctrl);
 
     h.tpool = rts_pthreadpool_init(1);
     if (!h.tpool) {
@@ -493,21 +372,10 @@ int start_stream(streamer_settings config) {
         zlog_fatal(c, "Failed to start H264 receive, ret %d", ret);
         kill_stream(&h);
     }
-    ret = rts_av_start_recv(h.aud_enc);
-    if (ret) {
-        zlog_fatal(c, "Failed to start audio encode receive, ret %d", ret);
-        kill_stream(&h);
-    }
 
     FILE *video_stream = NULL;
-    if (create_sink(&video_stream, VIDEO_FIFO, VIDEO_FIFO_SIZE) == RTS_FALSE) {
+    if (create_sink(&video_stream, VIDEO_FIFO) == RTS_FALSE) {
         zlog_fatal(c, "Failed to create video sink, ret %d", ret);
-        kill_stream(&h);
-    }
-
-    FILE *audio_stream = NULL;
-    if (create_sink(&audio_stream, AUDIO_FIFO, AUDIO_FIFO_SIZE) == RTS_FALSE) {
-        zlog_fatal(c, "Failed to create audio sink, ret %d", ret);
         kill_stream(&h);
     }
 
@@ -521,7 +389,6 @@ int start_stream(streamer_settings config) {
     change_ir_cut(1); // Always start as if it was day time
     zlog_info(c, "Starting imager streamer");
     struct rts_av_buffer *vid_buffer = NULL;
-    struct rts_av_buffer *aud_buffer = NULL;
     while (g_exit == RTS_FALSE) {
         // Handle video
         if (rts_av_poll(h.vid_enc)) {
@@ -543,22 +410,6 @@ int start_stream(streamer_settings config) {
             // Release the video buffer
             RTS_SAFE_RELEASE(vid_buffer, rts_av_put_buffer);
         }
-
-        // Handle audio
-        if (rts_av_poll(h.aud_enc))
-            continue;
-        if (rts_av_recv(h.aud_enc, &aud_buffer))
-            continue;
-
-        if (aud_buffer) {
-            if (fwrite(aud_buffer->vm_addr, 1, aud_buffer->bytesused, audio_stream) != aud_buffer->bytesused) {
-                zlog_error(c, "Possible SIGPIPE break from stream disconnection, skipping flush");
-            } else {
-                fflush(audio_stream);
-            }
-            RTS_SAFE_RELEASE(aud_buffer, rts_av_put_buffer);
-        }
-
         usleep(1000); // Iterate every 1ms
     }
 

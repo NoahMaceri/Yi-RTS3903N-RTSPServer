@@ -34,6 +34,6 @@ mount --bind /var/tmp/sd/localko /home/app/localko
 /var/tmp/sd/Yi/load_cpld_ssp
 
 # Start the imager streamer and RTSP server
-./imager_streamer &
-./rtsp_server &
+# ./imager_streamer &
+# ./rtsp_server &
 
