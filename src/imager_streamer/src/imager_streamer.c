@@ -39,7 +39,7 @@ uint8_t g_exit = RTS_FALSE;
 // This is used for "debouncing" the IR mode changes
 int8_t g_ir_cut_mode = -1; // 0 = day, 1 = night
 
-zlog_category_t *c;
+zlog_category_t *aud_c;
 
 #define F_LINUX_SPECIFIC_BASE	1024
 #define F_SETPIPE_SZ	(F_LINUX_SPECIFIC_BASE + 7)
@@ -90,7 +90,7 @@ uint8_t set_c_vbr(const int h264_ch, const uint32_t max_bitrate, const uint32_t 
         h264_ctl->min_bitrate = min_bitrate;
         rts_av_set_h264_ctrl(h264_ctl);
         rts_av_release_h264_ctrl(h264_ctl);
-        zlog_info(c, "Set encoder to CVBR mode with max_bitrate=%d, min_bitrate=%d", max_bitrate, min_bitrate);
+        zlog_info(aud_c, "Set encoder to CVBR mode with max_bitrate=%d, min_bitrate=%d", max_bitrate, min_bitrate);
     }
     return RTS_TRUE;
 }
@@ -107,11 +107,11 @@ void set_fps(const uint8_t fps) {
         uint8_t tmp = rts_av_get_isp_dynamic_fps();
         rts_av_set_isp_dynamic_fps(fps);
 
-        zlog_info(c, "Changed sensor fps from %d to %d", tmp, rts_av_get_isp_dynamic_fps());
+        zlog_info(aud_c, "Changed sensor fps from %d to %d", tmp, rts_av_get_isp_dynamic_fps());
     } else {
         ctrl.current_value = RTS_ISP_AE_PRIORITY_AUTO;
         rts_av_set_isp_ctrl(id, &ctrl);
-        zlog_info(c, "Sensor fps is %d", rts_av_get_isp_dynamic_fps());
+        zlog_info(aud_c, "Sensor fps is %d", rts_av_get_isp_dynamic_fps());
     }
 }
 
@@ -124,21 +124,21 @@ uint8_t change_isp_setting(enum enum_rts_video_ctrl_id type, int value) {
     int ret;
     ret = rts_av_get_isp_ctrl(type, &ctrl);
     if (ret) {
-        zlog_error(c, "Failed to change get control for %s", ctrl.name);
+        zlog_error(aud_c, "Failed to change get control for %s", ctrl.name);
         return RTS_FALSE;
     }
     if (!is_valid_value(value, &ctrl)) {
-        zlog_error(c, "Invalid value %d for %s (min: %d, max: %d, step: %d)", value, ctrl.name, ctrl.minimum, ctrl.maximum, ctrl.step);
-        zlog_warn(c, "Setting to default value %d", ctrl.default_value);
+        zlog_error(aud_c, "Invalid value %d for %s (min: %d, max: %d, step: %d)", value, ctrl.name, ctrl.minimum, ctrl.maximum, ctrl.step);
+        zlog_warn(aud_c, "Setting to default value %d", ctrl.default_value);
         value = ctrl.default_value;
     }
     ctrl.current_value = value;
     ret = rts_av_set_isp_ctrl(type, &ctrl);
     if (ret) {
-        zlog_error(c, "Failed to set new value for %d: ret = %d", type, ret);
+        zlog_error(aud_c, "Failed to set new value for %d: ret = %d", type, ret);
         return RTS_FALSE;
     }
-    zlog_info(c, "Changed %s to %d", ctrl.name, value);
+    zlog_info(aud_c, "Changed %s to %d", ctrl.name, value);
 
     return RTS_TRUE;
 }
@@ -192,8 +192,8 @@ static void check_ir_mode(const int32_t cutoff_inverted, const int32_t cutoff, c
 
     if ((invert && adc_value > cutoff_inverted) || (adc_value < cutoff)) {
         if (g_ir_cut_mode != 0) {
-            zlog_debug(c, "IR control: ADC_tot=%d, ADC_0=%d, ADC_1=%d, ADC_2=%d, ADC_3=%d cutoff=%d", adc_value, adc_value_0, adc_value_1, adc_value_2, adc_value_3, invert ? cutoff_inverted : cutoff);
-            zlog_info(c, "Switching to day mode");
+            zlog_debug(aud_c, "IR control: ADC_tot=%d, ADC_0=%d, ADC_1=%d, ADC_2=%d, ADC_3=%d cutoff=%d", adc_value, adc_value_0, adc_value_1, adc_value_2, adc_value_3, invert ? cutoff_inverted : cutoff);
+            zlog_info(aud_c, "Switching to day mode");
             change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 0);
             change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 0);
             change_ir_cut(0);
@@ -201,8 +201,8 @@ static void check_ir_mode(const int32_t cutoff_inverted, const int32_t cutoff, c
         }
     } else {
         if (g_ir_cut_mode != 1) {
-            zlog_debug(c, "IR control: ADC_tot=%d, ADC_0=%d, ADC_1=%d, ADC_2=%d, ADC_3=%d cutoff=%d", adc_value, adc_value_0, adc_value_1, adc_value_2, adc_value_3, invert ? cutoff_inverted : cutoff);
-            zlog_info(c, "Switching to night mode");
+            zlog_debug(aud_c, "IR control: ADC_tot=%d, ADC_0=%d, ADC_1=%d, ADC_2=%d, ADC_3=%d cutoff=%d", adc_value, adc_value_0, adc_value_1, adc_value_2, adc_value_3, invert ? cutoff_inverted : cutoff);
+            zlog_info(aud_c, "Switching to night mode");
             change_isp_setting(RTS_VIDEO_CTRL_ID_GRAY_MODE, 1);
             change_isp_setting(RTS_VIDEO_CTRL_ID_IR_MODE, 1);
             change_ir_cut(1);
@@ -212,16 +212,16 @@ static void check_ir_mode(const int32_t cutoff_inverted, const int32_t cutoff, c
 }
 
 static void ir_ctrl_thread(void *arg) {
-    zlog_info(c, "Starting IR control thread");
+    zlog_info(aud_c, "Starting IR control thread");
     const streamer_settings *settings = (streamer_settings *) arg;
     // Wait for any other apps controlling the IR cut to end
     sleep(30);
-    zlog_info(c, "Beginning IR control");
+    zlog_info(aud_c, "Beginning IR control");
     while (g_exit == RTS_FALSE) {
         check_ir_mode(settings->adc_cutoff_inverted, settings->adc_cutoff, settings->invert_ir_cut);
         sleep(30 - ADC_ITERATIONS);
     }
-    zlog_info(c, "IR control thread exiting");
+    zlog_info(aud_c, "IR control thread exiting");
 }
 
 void* unlock_fifo_thread(void *data) {
@@ -248,31 +248,31 @@ uint8_t create_sink(FILE** sink, const char* path) {
     sigaction(SIGPIPE, &sa, NULL);
     // remove any existing fifo file
     if (unlink(path) == 0) {
-        zlog_debug(c, "Removed existing fifo file %s", path);
+        zlog_debug(aud_c, "Removed existing fifo file %s", path);
     }
     // create a new fifo file
     if (mkfifo(path, 0755) < 0) {
-        zlog_fatal(c, "Failed to create fifo file %s", path);
+        zlog_fatal(aud_c, "Failed to create fifo file %s", path);
         return RTS_FALSE;
     }
     pthread_t unlock_thread;
     if(pthread_create(&unlock_thread, NULL, unlock_fifo_thread, (void *) path)) {
-        zlog_fatal(c, "Failed to unlock fifo %s", path);
+        zlog_fatal(aud_c, "Failed to unlock fifo %s", path);
         return RTS_FALSE;
     }
     pthread_detach(unlock_thread);
     // open the fifo file for writing
     *sink = fopen(path, "wb");
     if (!*sink) {
-        zlog_fatal(c, "Failed to open fifo file %s", path);
+        zlog_fatal(aud_c, "Failed to open fifo file %s", path);
         return RTS_FALSE;
     }
-    zlog_info(c, "Created sink at %s", path);
+    zlog_info(aud_c, "Created sink at %s", path);
     return RTS_TRUE;
 }
 
 void kill_stream(const handlers *h) {
-    zlog_info(c, "Stopping and destroying RTS channels");
+    zlog_info(aud_c, "Stopping and destroying RTS channels");
     g_exit = RTS_TRUE;
     sleep(2); // Give the IR control thread time to exit
     rts_pthreadpool_destroy(h->tpool);
@@ -292,7 +292,7 @@ void kill_stream(const handlers *h) {
     }
 
     rts_av_release();
-    zlog_info(c, "Stream stopped and resources released");
+    zlog_info(aud_c, "Stream stopped and resources released");
     _exit(1);
 }
 
@@ -313,10 +313,10 @@ int start_stream(streamer_settings config) {
     h.vid_cap = rts_av_create_isp_chn(&isp_attr);
 
     if (h.vid_cap < 0) {
-        zlog_fatal(c, "Failed to create ISP channel, ret %d", h.vid_cap);
+        zlog_fatal(aud_c, "Failed to create ISP channel, ret %d", h.vid_cap);
         kill_stream(&h);
     }
-    zlog_debug(c, "ISP channel created: %d", h.vid_cap);
+    zlog_debug(aud_c, "ISP channel created: %d", h.vid_cap);
 
     vid_profile.fmt = RTS_V_FMT_YUV420SEMIPLANAR;
     vid_profile.video.width = config.width;
@@ -326,7 +326,7 @@ int start_stream(streamer_settings config) {
 
     int ret = rts_av_set_profile(h.vid_cap, &vid_profile);
     if (ret) {
-        zlog_fatal(c, "Failed to set ISP profile, ret %d", ret);
+        zlog_fatal(aud_c, "Failed to set ISP profile, ret %d", ret);
         kill_stream(&h);
     }
     h264_attr.level = H264_LEVEL_4;
@@ -337,14 +337,14 @@ int start_stream(streamer_settings config) {
     h264_attr.rotation = RTS_AV_ROTATION_0;
     h.vid_enc = rts_av_create_h264_chn(&h264_attr);
     if (h.vid_enc < 0) {
-        zlog_fatal(c, "Failed to create H264 channel, ret %d", h.vid_enc);
+        zlog_fatal(aud_c, "Failed to create H264 channel, ret %d", h.vid_enc);
         kill_stream(&h);
     }
-    zlog_debug(c, "H264 channel created: %d", h.vid_enc);
+    zlog_debug(aud_c, "H264 channel created: %d", h.vid_enc);
 
     ret = rts_av_bind(h.vid_cap, h.vid_enc);
     if (ret) {
-        zlog_fatal(c, "Failed to bind ISP & H264 encoder to RTS AV API, ret %d", ret);
+        zlog_fatal(aud_c, "Failed to bind ISP & H264 encoder to RTS AV API, ret %d", ret);
         kill_stream(&h);
     }
     rts_av_enable_chn(h.vid_cap);
@@ -369,25 +369,25 @@ int start_stream(streamer_settings config) {
     set_fps(config.fps);
     ret = rts_av_start_recv(h.vid_enc);
     if (ret) {
-        zlog_fatal(c, "Failed to start H264 receive, ret %d", ret);
+        zlog_fatal(aud_c, "Failed to start H264 receive, ret %d", ret);
         kill_stream(&h);
     }
 
     FILE *video_stream = NULL;
     if (create_sink(&video_stream, VIDEO_FIFO) == RTS_FALSE) {
-        zlog_fatal(c, "Failed to create video sink, ret %d", ret);
+        zlog_fatal(aud_c, "Failed to create video sink, ret %d", ret);
         kill_stream(&h);
     }
 
     // Try load the V4L device
     int vfd = rts_isp_v4l2_open(isp_attr.isp_id);
     if (vfd > 0) {
-        zlog_debug(c, "Opened the V4L2 fd %d", vfd);
+        zlog_debug(aud_c, "Opened the V4L2 fd %d", vfd);
         rts_isp_v4l2_close(vfd);
     }
     // Toggle IR Cut at startup (disabled as of V03 as dispatch binary does this auto)
     change_ir_cut(1); // Always start as if it was day time
-    zlog_info(c, "Starting imager streamer");
+    zlog_info(aud_c, "Starting imager streamer");
     struct rts_av_buffer *vid_buffer = NULL;
     while (g_exit == RTS_FALSE) {
         // Handle video
@@ -403,7 +403,7 @@ int start_stream(streamer_settings config) {
 
         if (vid_buffer) {
             if (fwrite(vid_buffer->vm_addr, 1, vid_buffer->bytesused, video_stream) != vid_buffer->bytesused) {
-                zlog_error(c, "Possible SIGPIPE break from stream disconnection, skipping flush");
+                zlog_error(aud_c, "Possible SIGPIPE break from stream disconnection, skipping flush");
             } else {
                 fflush(video_stream);
             }
@@ -470,17 +470,17 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    c = zlog_get_category("imager");
-    zlog_info(c, "RTS Imager Streamer v%d.%d.%d started", VER_MAJOR, VER_MINOR, VER_PATCH);
+    aud_c = zlog_get_category("imager");
+    zlog_info(aud_c, "RTS Imager Streamer v%d.%d.%d started", VER_MAJOR, VER_MINOR, VER_PATCH);
 
     streamer_settings config;
     if (ini_parse("streamer.ini", parse_ini, &config) < 0) {
-        zlog_fatal(c, "Failed to load streamer.ini");
+        zlog_fatal(aud_c, "Failed to load streamer.ini");
         return -1;
     }
 
     if (rts_av_init()) {
-        zlog_fatal(c, "Failed to initialize RTS AV");
+        zlog_fatal(aud_c, "Failed to initialize RTS AV");
         return -1;
     }
 

@@ -1,22 +1,37 @@
-#ifndef _SN98600_RECORD_AUDIO_H_
-#define _SN98600_RECORD_AUDIO_H_
+#ifndef RECORD_AUDIO_H
+#define RECORD_AUDIO_H
 
-#include "audio_ctl.h"
+#include <malloc.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "AlsaDeviceSource.h"
 
-int snx98600_record_audio_start(struct sonix_audio *audio);
-int snx98600_record_audio_stop(struct sonix_audio *audio);
-void snx98600_record_audio_free(struct sonix_audio * audio);
-struct sonix_audio *snx98600_record_audio_new(const char *filename, sonix_audio_cb cb, void *cbarg);
+#define T_STACK_SZ 262144
 
-#ifdef __cplusplus
-}
-#endif
+struct audio; // forward declaration
+typedef void (*audio_cb)(audio *audio, const timeval *tv, void *data, size_t len, void *cb_args);
 
+struct audio {
 
-#endif
+    // Audio callback parameters
+    audio_cb cb;
+    void *cb_args;
+
+    // SND PCM parameters
+    snd_pcm_t *pcm;
+    char *codec_pcm_buf;
+    int codec_pcm_buf_len;
+    int codec_pcm_data_len;
+    AlsaDeviceSource * dev_src;
+
+    // Control parameters
+    int started;
+};
+
+int audio_start(audio *audio);
+int audio_stop(audio *audio);
+void audio_free(audio * audio);
+audio *audio_new(audio_cb cb, void *cb_args);
+
+#endif // RECORD_AUDIO_H
 
 

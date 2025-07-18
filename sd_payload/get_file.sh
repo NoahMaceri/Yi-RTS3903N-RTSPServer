@@ -1,4 +1,4 @@
-export LD_LIBRARY_PATH=/lib:/home/lib:/home/rt/lib:/home/app/locallib:/var/tmp/sd/lib
+source load_libs.sh
 
 if [ "$#" -ne 1 ]; then
     echo "please enter program name"
@@ -13,5 +13,5 @@ echo "Killed $1"
 rm $1
 echo "Removed $1"
 
-./socat -u TCP-LISTEN:9876,reuseaddr OPEN:$1,creat
 echo "Start the transfer"
+./socat -u TCP-LISTEN:9876,reuseaddr OPEN:$1,creat
