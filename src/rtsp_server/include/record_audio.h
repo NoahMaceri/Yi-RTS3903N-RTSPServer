@@ -1,7 +1,7 @@
 #ifndef _SN98600_RECORD_AUDIO_H_
 #define _SN98600_RECORD_AUDIO_H_
 
-#include "sn98600_audio_ctrl.h"
+#include "audio_ctl.h"
 
 #ifdef __cplusplus
 extern "C" {

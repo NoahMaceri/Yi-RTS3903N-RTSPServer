@@ -40,7 +40,7 @@ struct sonix_audio {
 };
 
 #define OATD_BUF_NUM 25
-#define __ERR_MSG(fmt, args...) fprintf(stderr, "sonix audio --- %s:" fmt, __FUNCTION__, ## args)
+#define __ERR_MSG(fmt, args...) fprintf(stderr, "audio --- %s:" fmt, __FUNCTION__, ## args)
 
 #ifdef __cplusplus
 }

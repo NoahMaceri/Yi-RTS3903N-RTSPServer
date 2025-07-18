@@ -15,7 +15,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <rtsp_server.h>
-#include <sn98600_record_audio.h>
+#include <record_audio.h>
 #include <ServerMediaSubsession.h>
 #include <AlsaDeviceSource.h>
 

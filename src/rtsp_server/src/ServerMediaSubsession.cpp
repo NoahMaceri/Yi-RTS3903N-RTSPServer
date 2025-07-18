@@ -33,11 +33,11 @@ FramedSource* BaseServerMediaSubsession::createSource(UsageEnvironment& env, Fra
 RTPSink*  BaseServerMediaSubsession::createSink(UsageEnvironment& env, Groupsock * rtpGroupsock, unsigned char rtpPayloadTypeIfDynamic)
 {
 	char const* mimeType = "L16";
-	unsigned char payloadFormatCode = 11;
+	unsigned char payloadFormatCode = 97;
 	unsigned const samplingFrequency = SAMPLE_RATE;
 	unsigned char const numChannels = 1;
 	fprintf(stderr, "create audio sink %d %d %s \n",  payloadFormatCode, samplingFrequency, mimeType);
-	return SimpleRTPSink::createNew(env, rtpGroupsock, payloadFormatCode, samplingFrequency, "audio", mimeType, numChannels);;
+	return SimpleRTPSink::createNew(env, rtpGroupsock, payloadFormatCode, samplingFrequency, "audio", mimeType, numChannels);
 }
 
 // -----------------------------------------

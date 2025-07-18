@@ -47,16 +47,6 @@ target_link_libraries(rtsp_server
     extern_libs
 )
 
-# audio_streamer
-add_executable(audio_streamer
-        src/audio_streamer/src/audio_streamer.c
-)
-target_link_libraries(audio_streamer
-        inih
-        zlog
-        extern_libs
-)
-
 # imager_streamer
 add_executable(imager_streamer
         src/imager_streamer/src/imager_streamer.c
